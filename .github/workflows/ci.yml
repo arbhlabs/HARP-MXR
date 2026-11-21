@@ -1,0 +1,48 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: windows, shell: pwsh } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '9.0.x' }
+      - name: Unit test suites
+        run: |
+          foreach ($t in 'Dsp','Gamepad','Waveform','Pad','Sync','Routing','AudioTiming','Remote') {
+            dotnet run --project "tests/MixDock.${t}Tests/MixDock.${t}Tests.csproj" -c Release
+            if ($LASTEXITCODE -ne 0) { throw "$t tests failed" }
+          }
+      - name: Build app
+        run: dotnet build src/MixDock/MixDock.csproj -c Release
+
+  macos:
+    runs-on: macos-15
+    defaults: { run: { working-directory: macos } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '9.0.x' }
+      - name: Shared DSP and controller tests
+        run: |
+          for t in Dsp Gamepad; do
+            dotnet run --project "windows/tests/MixDock.${t}Tests/MixDock.${t}Tests.csproj" -c Release
+          done
+      - name: Build and self-test MixDock Lite
+        run: |
+          dotnet build linux -c Release
+          dotnet linux/bin/Release/net9.0/mixdock.dll --selftest

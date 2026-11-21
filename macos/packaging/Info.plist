@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>MixDock</string>
+    <key>CFBundleDisplayName</key><string>MixDock</string>
+    <key>CFBundleIdentifier</key><string>com.arbhlabs.mixdock</string>
+    <key>CFBundleExecutable</key><string>MixDock</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+    <key>CFBundleVersion</key><string>__VERSION__</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSAudioCaptureUsageDescription</key><string>MixDock plays Spotify or a browser through its decks so you can EQ, filter and crossfade them. Nothing is recorded or saved.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>MixDock uses your Bluetooth game controller to mix.</string>
+</dict>
+</plist>

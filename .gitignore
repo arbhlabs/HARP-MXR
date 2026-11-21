@@ -1,0 +1,27 @@
+# build output
+**/bin/
+**/obj/
+dist/
+release/
+*.pdb
+# Swift
+macos/.build/
+macos/.swiftpm/
+*.xcodeproj/
+# editors / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+# local junk and secrets
+*.log
+*.tmp
+*.bak
+.env
+.env.*
+*.pem
+*.key
+*.pfx

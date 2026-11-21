@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MixDock</AssemblyName>
+    <RootNamespace>MixDock</RootNamespace>
+    <Version>1.4.0</Version>
+    <AssemblyTitle>MixDock</AssemblyTitle>
+    <Product>MixDock</Product>
+    <Company>ARBH Labs</Company>
+    <Copyright>(c) ARBH Labs</Copyright>
+    <Description>Per-app DJ mixer for Windows</Description>
+    <ApplicationIcon>MixDock.ico</ApplicationIcon>
+    <FileVersion>1.4.0.0</FileVersion>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="NAudio" Version="3.2.0" /><PackageReference Include="System.Management" Version="9.0.0" /></ItemGroup>
+</Project>

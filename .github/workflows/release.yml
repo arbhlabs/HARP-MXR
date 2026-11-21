@@ -1,0 +1,92 @@
+name: release
+# Push a tag like v1.4.0 to build Windows, macOS and Linux packages and attach them to a GitHub Release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: windows, shell: pwsh } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '9.0.x' }
+      - name: Version
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          "VERSION=$v" | Out-File -Append $env:GITHUB_ENV
+      - name: Unit test suites
+        run: |
+          foreach ($t in 'Dsp','Gamepad','Waveform','Pad','Sync','Routing','AudioTiming','Remote') {
+            dotnet run --project "tests/MixDock.${t}Tests/MixDock.${t}Tests.csproj" -c Release
+            if ($LASTEXITCODE -ne 0) { throw "$t tests failed" }
+          }
+      - name: Publish self-contained win-x64
+        run: |
+          $num = ($env:VERSION -split '-')[0]
+          dotnet publish src/MixDock/MixDock.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:DebugType=none -p:Version=$env:VERSION -p:FileVersion="$num.0" -o out/MixDock
+          Copy-Item ../LICENSE out/MixDock/
+          Compress-Archive -Path out/MixDock/* -DestinationPath "../MixDock-$env:VERSION-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: 'MixDock-*-windows-x64.zip', if-no-files-found: error }
+
+  macos:
+    runs-on: macos-15
+    defaults: { run: { working-directory: macos } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        run: echo "VERSION=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0)" >> "$GITHUB_ENV"
+      - run: swift test
+      - name: Build universal app, ad-hoc sign, make DMG (hdiutil)
+        run: bash scripts/bundle.sh
+      - name: Verify signature and DMG
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 dist/MixDock.app
+          lipo -archs dist/MixDock.app/Contents/MacOS/MixDock
+          hdiutil verify dist/MixDock.dmg
+          mv dist/MixDock.dmg "../MixDock-$VERSION-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: 'MixDock-*-macos-universal.dmg', if-no-files-found: error }
+
+  linux:
+    runs-on: ubuntu-22.04   # older glibc, so the binary runs on more distributions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '9.0.x' }
+      - name: Publish and self-test
+        run: |
+          set -euo pipefail
+          VERSION=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev)
+          D="MixDock-Lite-$VERSION-linux-x64"
+          dotnet publish linux -c Release -r linux-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:DebugType=none -p:Version="$VERSION" -o "$D"
+          "./$D/mixdock" --selftest
+          cp LICENSE linux/packaging/README-linux.txt "$D/"
+          chmod +x "$D/mixdock"
+          tar czf "$D.tar.gz" "$D"
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: 'MixDock-Lite-*-linux-x64.tar.gz', if-no-files-found: error }
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: assets, merge-multiple: true }
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" \
+            --title "MixDock $GITHUB_REF_NAME" --generate-notes

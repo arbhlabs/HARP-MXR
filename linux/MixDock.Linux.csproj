@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MixDock Lite for Linux: a terminal two-deck mixer that reuses the Windows app's DSP (EQ, kills, filter,
+       limiter) and stick curves. File decks only; audio goes out through PipeWire, PulseAudio or ALSA. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>mixdock</AssemblyName>
+    <RootNamespace>MixDock.Linux</RootNamespace>
+    <Version>1.4.0</Version>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../windows/src/MixDock/Audio/Biquad.cs" Link="Shared/Biquad.cs" />
+    <Compile Include="../windows/src/MixDock/Audio/DeckDsp.cs" Link="Shared/DeckDsp.cs" />
+    <Compile Include="../windows/src/MixDock/Audio/PeakLimiter.cs" Link="Shared/PeakLimiter.cs" />
+    <Compile Include="../windows/src/MixDock/Platform/Gamepad.cs" Link="Shared/Gamepad.cs" />
+  </ItemGroup>
+</Project>
