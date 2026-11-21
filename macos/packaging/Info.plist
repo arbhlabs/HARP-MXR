@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>MixDock</string>
-    <key>CFBundleDisplayName</key><string>MixDock</string>
+    <key>CFBundleDisplayName</key><string>HARP//MXR</string>
     <key>CFBundleIdentifier</key><string>com.arbhlabs.mixdock</string>
     <key>CFBundleExecutable</key><string>MixDock</string>
     <key>CFBundlePackageType</key><string>APPL</string>

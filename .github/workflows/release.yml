@@ -31,9 +31,9 @@ jobs:
           dotnet publish src/MixDock/MixDock.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:DebugType=none -p:Version=$env:VERSION -p:FileVersion="$num.0" -o out/MixDock
           Copy-Item ../LICENSE out/MixDock/
-          Compress-Archive -Path out/MixDock/* -DestinationPath "../MixDock-$env:VERSION-windows-x64.zip"
+          Compress-Archive -Path out/MixDock/* -DestinationPath "../HARP-MXR-$env:VERSION-windows-x64.zip"
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: 'MixDock-*-windows-x64.zip', if-no-files-found: error }
+        with: { name: windows, path: 'HARP-MXR-*-windows-x64.zip', if-no-files-found: error }
 
   macos:
     runs-on: macos-15
@@ -51,9 +51,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 dist/MixDock.app
           lipo -archs dist/MixDock.app/Contents/MacOS/MixDock
           hdiutil verify dist/MixDock.dmg
-          mv dist/MixDock.dmg "../MixDock-$VERSION-macos-universal.dmg"
+          mv dist/MixDock.dmg "../HARP-MXR-$VERSION-macos-universal.dmg"
       - uses: actions/upload-artifact@v4
-        with: { name: macos, path: 'MixDock-*-macos-universal.dmg', if-no-files-found: error }
+        with: { name: macos, path: 'HARP-MXR-*-macos-universal.dmg', if-no-files-found: error }
 
   linux:
     runs-on: ubuntu-22.04   # older glibc, so the binary runs on more distributions
@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev)
-          D="MixDock-Lite-$VERSION-linux-x64"
+          D="HARP-MXR-Lite-$VERSION-linux-x64"
           dotnet publish linux -c Release -r linux-x64 --self-contained true \
             -p:PublishSingleFile=true -p:DebugType=none -p:Version="$VERSION" -o "$D"
           "./$D/mixdock" --selftest
@@ -73,7 +73,7 @@ jobs:
           chmod +x "$D/mixdock"
           tar czf "$D.tar.gz" "$D"
       - uses: actions/upload-artifact@v4
-        with: { name: linux, path: 'MixDock-Lite-*-linux-x64.tar.gz', if-no-files-found: error }
+        with: { name: linux, path: 'HARP-MXR-Lite-*-linux-x64.tar.gz', if-no-files-found: error }
 
   publish:
     if: github.ref_type == 'tag'
@@ -89,4 +89,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" \
-            --title "MixDock $GITHUB_REF_NAME" --generate-notes
+            --title "HARP//MXR $GITHUB_REF_NAME" --generate-notes

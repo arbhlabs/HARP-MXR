@@ -15,16 +15,16 @@ internal static class Program
             catch(Exception ex){File.WriteAllText(Path.GetFullPath(args[1])+".error.txt",ex.ToString());return 1;}
         }
         ApplicationConfiguration.Initialize();
-        using var form=new Form{Text="MixDock 1.3.3 · Setup",ClientSize=new Size(520,285),FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,StartPosition=FormStartPosition.CenterScreen,BackColor=Color.FromArgb(16,18,20),ForeColor=Color.FromArgb(236,240,248),Font=new Font("Segoe UI",10)};
+        using var form=new Form{Text="HARP//MXR 1.3.3 · Setup",ClientSize=new Size(520,285),FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,StartPosition=FormStartPosition.CenterScreen,BackColor=Color.FromArgb(16,18,20),ForeColor=Color.FromArgb(236,240,248),Font=new Font("Segoe UI",10)};
         var title=new Label{Text="MIXDOCK",Font=new Font("Segoe UI",23,FontStyle.Bold),ForeColor=Color.FromArgb(70,216,227),Location=new Point(24,20),Size=new Size(470,44)};
         var text=new Label{Text="DJ console for Windows apps and files.\n\nInstalls for your account. No administrator rights or audio drivers. Your tracks and settings stay in place.\n\nThe app will stay closed until you open its shortcut.",Location=new Point(26,80),Size=new Size(465,140)};
-        var install=new Button{Text="Install MixDock",Location=new Point(284,235),Size=new Size(145,32),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(34,37,40)};
+        var install=new Button{Text="Install HARP//MXR",Location=new Point(284,235),Size=new Size(145,32),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(34,37,40)};
         var close=new Button{Text="Close",Location=new Point(435,235),Size=new Size(65,32),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(34,37,40)};close.Click+=(_,_)=>form.Close();
         form.Controls.AddRange([title,text,install,close]);
         try{form.Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);}catch{}
         install.Click+=async(_,_)=>
         {
-            install.Enabled=false;close.Enabled=false;text.Text="Installing MixDock for your account…";
+            install.Enabled=false;close.Enabled=false;text.Text="Installing HARP//MXR for your account…";
             string temp=Path.Combine(Path.GetTempPath(),"MixDock-Setup-"+Guid.NewGuid().ToString("N"));
             try
             {
@@ -35,7 +35,7 @@ internal static class Program
                 using var process=Process.Start(start)??throw new IOException("Could not start the per-user installer.");
                 var error=process.StandardError.ReadToEndAsync();var output=process.StandardOutput.ReadToEndAsync();await process.WaitForExitAsync();await output;
                 if(process.ExitCode!=0)throw new IOException(await error);
-                text.Text="Installed.\n\nOpen the MixDock desktop or Start menu shortcut when you are ready. TEST_ME.md is in the installed folder.\n\nAudio devices and the system default output were left untouched.";
+                text.Text="Installed.\n\nOpen the HARP//MXR desktop or Start menu shortcut when you are ready. TEST_ME.md is in the installed folder.\n\nAudio devices and the system default output were left untouched.";
                 install.Text="Installed";
             }
             catch(Exception ex){text.Text="Installation could not finish.\n\n"+ex.Message;install.Enabled=true;}

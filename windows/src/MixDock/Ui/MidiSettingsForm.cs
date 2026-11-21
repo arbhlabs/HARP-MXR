@@ -21,7 +21,7 @@ public sealed class MidiSettingsForm : Form
         int y = 14;
         var st = new Label { AutoSize = false, Text = status, Left = 16, Top = y, Width = 488, Height = 22, ForeColor = status.Contains("no virtual port") ? Theme.Muted : Color.FromArgb(131, 181, 185), Font = Theme.Font(10, true) };
         Controls.Add(st); y += 30;
-        var hint = new Label { AutoSize = false, Text = "MixDock creates its own port when the Tobias Erichsen teVirtualMIDI driver is installed, otherwise it uses a loopMIDI port.", Left = 16, Top = y, Width = 488, Height = 34, ForeColor = Theme.Muted, Font = Theme.Font(8.5f) };
+        var hint = new Label { AutoSize = false, Text = "HARP//MXR creates its own port when the Tobias Erichsen teVirtualMIDI driver is installed, otherwise it uses a loopMIDI port.", Left = 16, Top = y, Width = 488, Height = 34, ForeColor = Theme.Muted, Font = Theme.Font(8.5f) };
         Controls.Add(hint); y += 40;
         void Row(string label, Control c, int w = 250)
         {

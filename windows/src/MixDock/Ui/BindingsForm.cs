@@ -50,7 +50,7 @@ public sealed class BindingsForm : Form
     public BindingsForm(AppConfig config)
     {
         _config = config;
-        Text = "MixDock · Controller mappings";
+        Text = "HARP//MXR · Controller mappings";
         AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
         ClientSize = new Size(1000, 720); MinimumSize = new Size(860, 520);
         StartPosition = FormStartPosition.CenterParent; BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(9.5f);
@@ -146,7 +146,7 @@ public sealed class BindingsForm : Form
         }
         else if (!string.IsNullOrWhiteSpace(action))
         {
-            var raw = new Choice { Raw = action, Text = $"⚠ {action} (not a MixDock action: does nothing)" };
+            var raw = new Choice { Raw = action, Text = $"⚠ {action} (not a HARP//MXR action: does nothing)" };
             cell.Action.Items.Add(raw); cell.Action.SelectedItem = raw; cell.Deck.SelectedIndex = 0;
         }
         else { cell.Action.SelectedIndex = 0; cell.Deck.SelectedIndex = 0; }

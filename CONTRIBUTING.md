@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. MixDock is small, so the rules are short.
+Thanks for helping. HARP//MXR is small, so the rules are short.
 
 - **One change per pull request**, with a sentence on why. Bug reports: say which OS, which build and how to reproduce it.
 - **Run the tests for the part you touched** before you open the PR:

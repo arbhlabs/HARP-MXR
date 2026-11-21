@@ -56,7 +56,7 @@ public sealed partial class MainForm : Form
         ProtectedApps.Set(_config.ProtectedApps);
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "MixDock"; try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
+        Text = "HARP//MXR"; try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         ClientSize = new Size(1184, 920);
         MinimumSize = new Size(1120, 916);
         StartPosition = FormStartPosition.CenterScreen;

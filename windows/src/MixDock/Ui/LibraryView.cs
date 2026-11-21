@@ -29,7 +29,7 @@ public sealed class LibraryView : Panel
         _search.TextChanged+=(_,_)=>RefreshRows();
         _add.Click+=(_,_)=>
         {
-            using var dlg=new OpenFileDialog{Title="Add tracks to MixDock",Multiselect=true,Filter="Music|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.aiff"};
+            using var dlg=new OpenFileDialog{Title="Add tracks to HARP//MXR",Multiselect=true,Filter="Music|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.aiff"};
             if(dlg.ShowDialog(this)!=DialogResult.OK)return;
             AddTracks(dlg.FileNames);
         };

@@ -14,6 +14,7 @@
     <Compile Include="../../src/MixDock/Ui/MidiSettingsForm.cs" Link="Ui/MidiSettingsForm.cs" />
     <Compile Include="../../src/MixDock/Platform/Gamepad.cs" Link="Platform/Gamepad.cs" />
     <Compile Include="../../src/MixDock/Platform/PadLogic.cs" Link="Platform/PadLogic.cs" />
+    <Compile Include="../../src/MixDock/Platform/ActionCatalog.cs" Link="Platform/ActionCatalog.cs" />
     <Compile Include="../../src/MixDock/Platform/PadMapper.cs" Link="Platform/PadMapper.cs" />
     <Compile Include="../../src/MixDock/Platform/PadBanks.cs" Link="Platform/PadBanks.cs" />
     <Compile Include="../../src/MixDock/Platform/Midi.cs" Link="Platform/Midi.cs" />

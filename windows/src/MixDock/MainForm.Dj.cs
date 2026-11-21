@@ -35,7 +35,7 @@ public sealed partial class MainForm
         var dj = _dj = new DjLayout();
         Controls.Clear(); Controls.Add(dj);
         AutoScaleMode=AutoScaleMode.None;
-        Text = "MixDock · DJ console"; ClientSize = new Size(1366,768); MinimumSize = new Size(960,540);
+        Text = "HARP//MXR · DJ console"; ClientSize = new Size(1366,768); MinimumSize = new Size(960,540);
         if(!_preview)WindowState=FormWindowState.Maximized;
         Label LabelAt(string text,int x,int y,int w,int h,float size=8,Color? color=null)
         {
@@ -270,7 +270,7 @@ public sealed partial class MainForm
     private void ShowDiagnostics(){using var f=CreateDiagnostics();f.ShowDialog(this);_diagnostics=null;_profiles=null;}
     private Form CreateDiagnostics()
     {
-        var f=new Form{Text="MixDock · Settings",Size=new Size(690,520),BackColor=Theme.Background,ForeColor=Theme.Text,StartPosition=FormStartPosition.CenterParent,Font=Theme.Font(10)};
+        var f=new Form{Text="HARP//MXR · Settings",Size=new Size(690,520),BackColor=Theme.Background,ForeColor=Theme.Text,StartPosition=FormStartPosition.CenterParent,Font=Theme.Font(10)};
         var flow=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,Padding=new Padding(20),WrapContents=false,AutoScroll=true};f.Controls.Add(flow);
         flow.Controls.Add(new Label{Text="Speakers stay in the top bar. Here: headphones for cue, buffer size, and controller.",AutoSize=false,Width=610,Height=36,ForeColor=Theme.Muted});
         flow.Controls.Add(new Label{Text="Buffer size (shared WASAPI — applies when outputs reopen)",AutoSize=true});

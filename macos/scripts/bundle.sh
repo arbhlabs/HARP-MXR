@@ -34,6 +34,6 @@ mkdir -p dist/dmg
 cp -R "$APP" dist/dmg/
 ln -s /Applications dist/dmg/Applications
 cp packaging/FIRST-OPEN.txt "dist/dmg/First open - read me.txt"
-hdiutil create -volname "MixDock" -srcfolder dist/dmg -ov -format UDZO dist/MixDock.dmg
+hdiutil create -volname "HARP MXR" -srcfolder dist/dmg -ov -format UDZO dist/MixDock.dmg
 rm -rf dist/dmg
 echo "Built dist/MixDock.dmg ($VERSION)"

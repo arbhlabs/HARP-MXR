@@ -1,14 +1,16 @@
-# MixDock
+# HARP//MXR
+
+*Formerly MixDock.*
 
 **A two-deck DJ mixer you can play with an Xbox controller.** Load two songs, or (on Windows and macOS) grab the live audio of Spotify or a browser, then mix them with EQ, kills, a filter, a crossfader and performance effects, all from the sofa with a gamepad.
 
 <!-- Screenshot placeholder: add docs/screenshot-windows.png and replace this comment with
-     ![MixDock on Windows](docs/screenshot-windows.png) -->
+     ![HARP//MXR on Windows](docs/screenshot-windows.png) -->
 > Screenshot coming soon.
 
 | | Windows | macOS | Linux |
 |---|---|---|---|
-| App | Full app (WinForms) | Full app (SwiftUI) | **MixDock Lite** (terminal) |
+| App | Full app (WinForms) | Full app (SwiftUI) | **HARP//MXR Lite** (terminal) |
 | Mix song files | Yes | Yes | Yes (any format ffmpeg reads) |
 | Mix live app audio (Spotify, browser) | Yes (process loopback), with pause and up to 30 s waveform look-ahead | Yes, macOS 14.4+ (process taps) | No |
 | EQ, kills, filter, crossfader, limiter | Yes | Yes | Yes (same DSP code as Windows) |
@@ -27,26 +29,26 @@ Download the file for your system from the [Releases](../../releases) page.
 2. Run `MixDock.exe`. Nothing else needs installing: .NET is included.
 3. Windows SmartScreen may say *"Windows protected your PC"* because the app is not code-signed. Click **More info**, then **Run anyway**.
 
-Settings live in `%APPDATA%\MixDock`, logs in `%LOCALAPPDATA%\MixDock`. To remove MixDock, delete the folder.
+Settings live in `%APPDATA%\MixDock`, logs in `%LOCALAPPDATA%\MixDock`. To remove HARP//MXR, delete the folder.
 
 ### macOS 14 (Sonoma) or newer, Apple silicon and Intel
 
-1. Download `MixDock-<version>-macos-universal.dmg`, open it and drag **MixDock** into **Applications**.
+1. Download `MixDock-<version>-macos-universal.dmg`, open it and drag **HARP//MXR** into **Applications**.
 2. Double-click MixDock. The first time, macOS blocks it with *"Apple could not verify MixDock..."*. Click **Done**, then allow it once:
-   - **macOS 15 Sequoia and newer:** open **System Settings > Privacy & Security**, scroll down to **Security** and click **Open Anyway** next to MixDock, then confirm.
-   - **macOS 14 Sonoma:** right-click (Control-click) MixDock in Applications, choose **Open**, then **Open** again.
+   - **macOS 15 Sequoia and newer:** open **System Settings > Privacy & Security**, scroll down to **Security** and click **Open Anyway** next to HARP//MXR, then confirm.
+   - **macOS 14 Sonoma:** right-click (Control-click) HARP//MXR in Applications, choose **Open**, then **Open** again.
    - **Or in Terminal** (any version):
      ```sh
      xattr -dr com.apple.quarantine /Applications/MixDock.app
      ```
 
-**Why this step?** MixDock is ad-hoc signed but not notarized (that needs a paid Apple developer account). Browsers, AirDrop and chat apps mark downloaded files as "quarantined", so an un-notarized app will not open until you allow it. If you pass the DMG on to someone, they need to do this step too. A DMG must be built on a Mac: the release workflow builds it on a macOS runner with `hdiutil` and signs the app with `codesign --sign -`.
+**Why this step?** HARP//MXR is ad-hoc signed but not notarized (that needs a paid Apple developer account). Browsers, AirDrop and chat apps mark downloaded files as "quarantined", so an un-notarized app will not open until you allow it. If you pass the DMG on to someone, they need to do this step too. A DMG must be built on a Mac: the release workflow builds it on a macOS runner with `hdiutil` and signs the app with `codesign --sign -`.
 
 To mix Spotify or a browser (macOS 14.4+), start the music and pick the app under **SOURCE** on a deck. macOS asks to allow audio recording once; nothing is recorded or saved.
 
-### Linux (x64): MixDock Lite
+### Linux (x64): HARP//MXR Lite
 
-MixDock Lite is a terminal mixer for song files. It reuses the Windows app's deck DSP (3-band EQ, kills, filter, auto-gain) and look-ahead limiter. It does **not** capture other apps' audio, and has no pads, FX, waveforms or MIDI.
+HARP//MXR Lite is a terminal mixer for song files. It reuses the Windows app's deck DSP (3-band EQ, kills, filter, auto-gain) and look-ahead limiter. It does **not** capture other apps' audio, and has no pads, FX, waveforms or MIDI.
 
 1. Install the helpers:
    - Debian/Ubuntu: `sudo apt install ffmpeg pulseaudio-utils` (`pacat` also works on PipeWire desktops; `alsa-utils` is the fallback).
@@ -79,7 +81,7 @@ Hold **View** (or LB+RB) for **SHIFT**. While SHIFT is held, the footer lists wh
 | View (tap) / Menu | Tap BPM / sync | Bank mode / **pause or resume the focus deck** |
 | Hold View + Menu | Panic: silence everything | |
 
-**Pause:** Shift+Menu pauses the focused deck. For a live app, MixDock sends pause to the app's Windows media session (Spotify, browser tabs). If the app has no session, the deck is **frozen** in MixDock instead and the app keeps playing unheard. **Pause all:** Ctrl+Alt+Shift+Space, or bind *Pause / resume all decks* in Mappings.
+**Pause:** Shift+Menu pauses the focused deck. For a live app, HARP//MXR sends pause to the app's Windows media session (Spotify, browser tabs). If the app has no session, the deck is **frozen** in HARP//MXR instead and the app keeps playing unheard. **Pause all:** Ctrl+Alt+Shift+Space, or bind *Pause / resume all decks* in Mappings.
 
 **Look-ahead:** live decks are heard 10 s after capture (0-30 s per deck, under **Settings**), so the waveform shows what is coming up to the right of the playhead. Set a deck to 0 for browser video, so the sound stays in sync with the picture.
 
@@ -102,7 +104,7 @@ The 1.4.0 layout (left stick X = crossfader, D-pad left/right = mid/high kill, S
 
 Any USB MIDI DJ controller also works: press **MIDI**, then **LEARN** next to a function and move the control.
 
-### Linux (MixDock Lite)
+### Linux (HARP//MXR Lite)
 
 | Input | Action |
 |---|---|
@@ -130,7 +132,7 @@ Releases are built by [`.github/workflows/release.yml`](.github/workflows/releas
 
 ## Privacy
 
-MixDock processes audio in memory. It does not record full tracks, has no account, sends no telemetry and opens no network port. The Windows remote-control code is off by default; if you enable it, it binds to `127.0.0.1` unless you explicitly allow LAN access.
+HARP//MXR processes audio in memory. It does not record full tracks, has no account, sends no telemetry and opens no network port. The Windows remote-control code is off by default; if you enable it, it binds to `127.0.0.1` unless you explicitly allow LAN access.
 
 ## License
 

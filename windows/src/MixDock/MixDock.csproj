@@ -10,8 +10,8 @@
     <AssemblyName>MixDock</AssemblyName>
     <RootNamespace>MixDock</RootNamespace>
     <Version>1.4.0</Version>
-    <AssemblyTitle>MixDock</AssemblyTitle>
-    <Product>MixDock</Product>
+    <AssemblyTitle>HARP//MXR</AssemblyTitle>
+    <Product>HARP//MXR</Product>
     <Company>ARBH Labs</Company>
     <Copyright>(c) ARBH Labs</Copyright>
     <Description>Per-app DJ mixer for Windows</Description>
