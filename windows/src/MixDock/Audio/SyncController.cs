@@ -105,6 +105,8 @@ public sealed class SyncController
     public void Process(int frames)
     {
         while (_cmds.TryDequeue(out var c)) { try { c(); } catch (Exception ex) { Log.Write("sync cmd: " + ex.Message); } }
+        // live app decks (not song files) are forward-only: no replays, drift-corrected, crossfaded overflow
+        for (int d = 0; d < 2; d++) { bool live = _d[d].Active && !_d[d].IsFile; if (_r[d].ForwardLive != live) _r[d].ForwardLive = live; }
         double dt = frames / Fs;
         if (_slave >= 0) { try { Lock(frames, dt); } catch (Exception ex) { Log.Write("sync lock: " + ex); } }
         else FreeRun();
