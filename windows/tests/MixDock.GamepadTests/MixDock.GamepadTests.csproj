@@ -6,6 +6,8 @@
     <Compile Include="../../src/MixDock/Platform/PadMapper.cs" Link="Platform/PadMapper.cs" />
     <Compile Include="../../src/MixDock/Settings/AppConfig.cs" Link="Settings/AppConfig.cs" />
     <Compile Include="../../src/MixDock/Platform/PadBanks.cs" Link="Platform/PadBanks.cs" />
+    <Compile Include="../../src/MixDock/Platform/ActionCatalog.cs" Link="Platform/ActionCatalog.cs" />
+    <Compile Include="../../src/MixDock/Platform/MediaSessionMatch.cs" Link="Platform/MediaSessionMatch.cs" />
     <Compile Include="../../src/MixDock/Audio/ChordTheory.cs" Link="Audio/ChordTheory.cs" />
     <Compile Include="../../src/MixDock/Audio/KeyDetector.cs" Link="Audio/KeyDetector.cs" />
   </ItemGroup>

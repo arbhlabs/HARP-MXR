@@ -1,13 +1,13 @@
 namespace MixDock.Audio;
 
 /// <summary>
-/// Last ~23 s of a deck's raw captured stereo audio, addressed by ABSOLUTE frame index (frames since the stream started),
+/// Last ~47 s of a deck's raw captured stereo audio, addressed by ABSOLUTE frame index (frames since the stream started),
 /// the same clock <see cref="BpmDetector"/> grids use. One writer (capture / file thread), one reader (render thread).
 /// A reader may jump back in time (replay a bar) or sit ahead of the writer's lead (live decks cannot read the future).
 /// </summary>
 public sealed class SampleHistory
 {
-    public const int CapacityFrames = 1 << 20;     // 23.8 s
+    public const int CapacityFrames = 1 << 21;     // 47.5 s: covers the 30 s look-ahead plus replay room
     private const int Mask = CapacityFrames - 1;
     private readonly float[] _buf = new float[CapacityFrames * 2];
     private long _written;

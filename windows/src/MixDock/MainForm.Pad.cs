@@ -149,7 +149,7 @@ public sealed partial class MainForm
             {
                 RumblePulse(.35, 90);
                 // a startup/recovery message wins over the hint when the pad was already plugged in at launch
-                if (_padSeenOnce || string.IsNullOrWhiteSpace(_message.Text)) SetMessage(PadHints.Connected(Gamepad.Slot + 1, ModeOf(_bank)));
+                if (_padSeenOnce || string.IsNullOrWhiteSpace(_message.Text)) SetMessage(PadHints.Connected(Gamepad.Slot + 1));
                 _padSeenOnce = true;
             }
             _hintShift = false;
@@ -185,6 +185,8 @@ public sealed partial class MainForm
     }
 
     private bool _hintShift, _padSeenOnce;
+    private int _nudgeRepeats;
+    private readonly double[] _blendEcho = new double[2], _blendVerb = new double[2];
     private string? _messageBeforeHint, _shownHint;
 
     /// <summary>While SHIFT is held the footer shows what every button does in the current bank; on release the
@@ -196,7 +198,7 @@ public sealed partial class MainForm
         if (shift)
         {
             _messageBeforeHint = _message.Text;
-            _shownHint = PadHints.For(true, ModeOf(_bank));
+            _shownHint = PadHints.For(true, _config.ShiftButtons);
             SetMessage(_shownHint);
         }
         else if (_shownHint != null && _message.Text == _shownHint)
@@ -213,10 +215,14 @@ public sealed partial class MainForm
         Span<bool> reverse = stackalloc bool[2];
         double riser = 0; bool fxPad = false; int fxDeck = _focus;
         bool shift = _padMapper.Shift;
+        Span<double> blendL = stackalloc double[2], blendR = stackalloc double[2];
+        string ActionFor(string ax) => shift && _config.ShiftAxes.TryGetValue(ax, out var s1) ? s1 : _config.GamepadAxes.GetValueOrDefault(ax, "");
         foreach (var (axis, normalAction) in _config.GamepadAxes)
         {
             string action = shift && _config.ShiftAxes.TryGetValue(axis, out var sa) ? sa : normalAction;
-            double v = Gamepad.AxisLocked(frame, axis);
+            // a stick used as an FX-blend XY pad reads its other axis without the axis lock, so circling morphs smoothly
+            string? partner = axis switch { "LeftThumbY" => "LeftThumbX", "RightThumbY" => "RightThumbX", _ => null };
+            double v = partner != null && ActionFor(partner).EndsWith("FxBlend") ? Gamepad.Axis(frame, axis) : Gamepad.AxisLocked(frame, axis);
             int? deck = DeckOf(action, _focus, out string ctl);
             bool absolute = ctl == "Filter" && deck != null;
             if (!_axisDrivers.TryGetValue(axis, out var drv) || drv.Absolute != absolute)
@@ -237,6 +243,14 @@ public sealed partial class MainForm
                 case "FilterFine" when deck is int d:
                     if (_filters[d].Creep(v, dt)) ApplyFilter(d);
                     break;
+                case "FxBlend" when deck is int bd:
+                {
+                    var (sx, sy) = axis.StartsWith("Right") ? (frame.RX, frame.RY) : (frame.LX, frame.LY);
+                    var (bl, br) = FxCurves.SideBlend(sx, sy, _config.FxDeadzone);
+                    int o = GestureOwner(axis + "#blend", bd, bl + br > 0);
+                    blendL[o] = Math.Max(blendL[o], bl); blendR[o] = Math.Max(blendR[o], br);
+                    break;
+                }
                 case "FxX" or "FxY":
                     // XY pad: both stick axes are used together (no axis lock); the deck focused when the gesture started keeps it
                     fxPad = true; if (deck is int pd) fxDeck = pd;
@@ -312,12 +326,26 @@ public sealed partial class MainForm
         double x01 = fxPad ? FxCurves.Param(frame.RX) : .5, y01 = fxPad ? FxCurves.Param(frame.RY) : .5;
         int fo = GestureOwner("FxPad", fxDeck, amount > 0);
         fxAmt[fo] = amount;
+        // ---- left-stick FX blend: 60 ms smoothing, glides back to dry on release (tails ring out)
+        double kb = 1 - Math.Exp(-dt / 0.06);
+        for (int d = 0; d < 2; d++)
+        {
+            _blendEcho[d] += (blendR[d] - _blendEcho[d]) * kb; if (_blendEcho[d] < 1e-3) _blendEcho[d] = 0;
+            _blendVerb[d] += (blendL[d] - _blendVerb[d]) * kb; if (_blendVerb[d] < 1e-3) _blendVerb[d] = 0;
+            send[d] = Math.Max(send[d], _blendEcho[d]);
+            if (_blendEcho[d] > .05) AnnounceMove($"FX BLEND · ECHO {_blendEcho[d] * 100:0}%", d);
+            else if (_blendVerb[d] > .05) AnnounceMove($"FX BLEND · REVERB {_blendVerb[d] * 100:0}%", d);
+        }
         for (int d = 0; d < 2; d++)
         {
             var (bpmD, phD) = Tempo(d);
             long stamp = System.Diagnostics.Stopwatch.GetTimestamp();
             double a = fxAmt[d];
-            if(!_mouseFxHeld[d]&&!_mouseFreeze[d]) _engine.Mixer.Fx(d).State = new PerformanceFx.Controls(_fx, a, x01, y01, bpmD, phD, _fxFreeze, _config.FxSmoothMs, stamp);
+            // the right-stick pad wins; when it rests, the left-stick blend drives the reverb
+            bool verb = _blendVerb[d] > a;
+            if(!_mouseFxHeld[d]&&!_mouseFreeze[d]) _engine.Mixer.Fx(d).State = verb
+                ? new PerformanceFx.Controls(PadFx.Reverb, _blendVerb[d], .7, .5, bpmD, phD, _fxFreeze, _config.FxSmoothMs, stamp)
+                : new PerformanceFx.Controls(_fx, a, x01, y01, bpmD, phD, _fxFreeze, _config.FxSmoothMs, stamp);
             var sampler = Sampler(d);
             sampler.SetTempo(bpmD, phD);
             sampler.Bend = (float)bend[d]; sampler.Reverse = reverse[d];
@@ -576,6 +604,16 @@ public sealed partial class MainForm
             else if (!down) _holds.Remove(action);
             return;
         }
+        if (deck is null && ctl is "Crossfader-" or "Crossfader+")
+        {
+            // D-pad crossfader: a tap nudges, holding repeats and accelerates
+            if (!down) return;
+            _nudgeRepeats = repeat ? _nudgeRepeats + 1 : 0;
+            int step = BeatQuant.NudgeStep(_nudgeRepeats);
+            _cross.Value = Math.Clamp(_cross.Value + (ctl == "Crossfader+" ? step : -step), 0, 100);
+            AnnounceMove($"FADER {_cross.Value}");
+            return;
+        }
         if (TryPad(ctl, "Pad:", out int padN)) { if (down) BankPadDown(d, padN, false); else BankPadUp(padN); return; }
         if (TryPad(ctl, "PadCapture:", out int capN)) { PadAlt(d, capN, down); return; }
         if (!down) return;
@@ -642,7 +680,7 @@ public sealed partial class MainForm
                 break;
             }
             case "PlayPause":
-                if (Source(d).IsFile) SongPlayPause(d); else SetMessage("Play/pause works on song files; live apps play in their own window.");
+                DeckPlayPause(d);
                 break;
             case "BrowsePrev":
             case "BrowseNext":

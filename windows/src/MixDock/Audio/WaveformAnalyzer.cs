@@ -166,3 +166,18 @@ public readonly record struct BeatGrid(double Bpm, double FirstBeatSec)
         return new BeatGrid(60.0 / (bestP * ColSec), first * ColSec);
     }
 }
+
+/// <summary>Scrolling-lane geometry (pure, unit-tested): with no look-ahead the playhead sits in the middle of an 8 s
+/// window; with a look-ahead the window widens so everything already captured (the delay line) is visible to the right
+/// of the playhead, keeping 3 s of history on the left.</summary>
+public static class WaveView
+{
+    public const double DefaultWindowSec = 8, BehindSec = 3;
+
+    public static (double WindowSec, double PlayheadFrac) Layout(double aheadSec)
+    {
+        if (!double.IsFinite(aheadSec) || aheadSec <= DefaultWindowSec / 2) return (DefaultWindowSec, 0.5);
+        double window = BehindSec + aheadSec + 0.5;
+        return (window, BehindSec / window);
+    }
+}

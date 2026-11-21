@@ -21,6 +21,33 @@ public sealed class DeckReader
     private bool _fullRestart;
     private double _rate = 1.0;
     private int _targetFrames = Rate44 * DefaultTargetMs / 1000;
+    private int _lookFrames;
+    private volatile bool _frozen;
+    private int _fadeIn;
+    public const int MaxLookAheadMs = 30000;
+    private const int FadeInFrames = 220;   // 5 ms
+
+    /// <summary>Look-ahead delay line on top of the latency target: live audio is heard this long after capture, so the
+    /// waveform can draw it to the right of the playhead. Deeper = re-buffer (a gap while it fills); shallower = skip ahead.</summary>
+    public int LookAheadMs
+    {
+        get => Volatile.Read(ref _lookFrames) * 1000 / Rate44;
+        set
+        {
+            int t = (int)((long)Rate44 * Math.Clamp(value, 0, MaxLookAheadMs) / 1000);
+            if (t > _lookFrames + Rate44 / 50) _rebuffer = true;
+            else if (t < _lookFrames - Rate44 / 50) _trimNow = true;
+            Volatile.Write(ref _lookFrames, t);
+        }
+    }
+
+    /// <summary>Paused: nothing is read (the buffered look-ahead waits), output fades out in ~3 ms; on resume playback
+    /// continues from the same frame with a 5 ms fade-in. The capture side stops writing at the same time (DeckSource.Frozen).</summary>
+    public bool Frozen
+    {
+        get => _frozen;
+        set { if (_frozen && !value) Volatile.Write(ref _fadeIn, FadeInFrames); _frozen = value; }
+    }
     private float _lastL, _lastR;
     private int _underrun, _overrun;
 
@@ -132,21 +159,38 @@ public sealed class DeckReader
 
     public void Read(Span<float> dst)
     {
+        if (_frozen) { PadHold(dst, 0); _lastL = _lastR = 0; _dsp.Process(dst, dst); return; }
+        ReadCore(dst);
+        int fade = Volatile.Read(ref _fadeIn);
+        if (fade > 0)
+        {
+            int frames = dst.Length / 2, n = Math.Min(frames, fade);
+            for (int i = 0; i < n; i++)
+            {
+                float g = 1f - (fade - i) / (float)FadeInFrames;
+                dst[2 * i] *= g; dst[2 * i + 1] *= g;
+            }
+            Volatile.Write(ref _fadeIn, fade - n);
+        }
+    }
+
+    private void ReadCore(Span<float> dst)
+    {
         if (HistoryMode) { ReadHistory(dst); return; }
-        int targetS = _targetFrames * 2;
+        int targetS = (_targetFrames + _lookFrames) * 2;
         if (_rebuffer) { _rebuffer = false; _started = false; _fullRestart = true; }
         if (_trimNow) { _trimNow = false; _srcFrames = 0; _pos = 0; _ring.Trim(targetS); }
         if (_ring.Count > targetS * 2 + 2 * Rate44 / 10 && !_slew) { _ring.Trim(targetS); Interlocked.Increment(ref _overrun); }
         if (!_started)
         {
-            int restart = _fullRestart ? targetS : Math.Min(targetS, 2 * Rate44 * 40 / 1000);
+            int restart = _fullRestart || _lookFrames > 0 ? targetS : Math.Min(targetS, 2 * Rate44 * 40 / 1000);
             if (_ring.Count + _srcFrames * 2 >= restart && _ring.Count > 0) { _started = true; _fullRestart = false; }
             else { PadHold(dst, 0); _lastL = _lastR = 0; _dsp.Process(dst, dst); return; }
         }
         double rate = Rate;
         if (_slew)
         {
-            int err = BufferedMs - TargetMs;
+            int err = BufferedMs - TargetMs - LookAheadMs;
             if (Math.Abs(err) <= 6) _slew = false;
             else rate = err < 0 ? 0.97 : 1.03;
         }

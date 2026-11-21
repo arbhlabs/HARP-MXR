@@ -74,6 +74,15 @@ Assert(!BeatGrid.Estimate(WaveformAnalyzer.AnalyzeAll(Tone(440, 0.3, 2))).Valid,
     Assert(g.Beats(10, 12).All(b => Math.Abs(b.t - (0.25 + b.k * 0.5)) < 1e-9) && g.Beats(10, 12).First().k == 20, "beat index counts from the first beat (bar = k % 4)");
     Assert(g.Beats(-1.2, 0).Select(b => b.k).SequenceEqual(new long[] { -2, -1 }), "grid extends before the first beat");
 }
+// look-ahead view: the delay line is drawn to the right of the playhead
+{
+    var (w0, f0) = WaveView.Layout(0);
+    Assert(w0 == 8 && f0 == .5, "no look-ahead: centred playhead, 8 s window");
+    var (w10, f10) = WaveView.Layout(10.12);
+    Assert(w10 * (1 - f10) >= 10.12 && w10 * f10 >= 2.9, $"10 s look-ahead: {w10 * (1 - f10):0.0} s visible ahead, {w10 * f10:0.0} s behind");
+    var (w30, f30) = WaveView.Layout(30);
+    Assert(w30 * (1 - f30) >= 30, "30 s look-ahead fits in the window");
+}
 Console.WriteLine($"ALL {count} TESTS PASSED");
 return 0;
 

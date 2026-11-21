@@ -7,7 +7,7 @@ namespace MixDock.Ui;
 /// <summary>What one deck shows this frame. File decks: <see cref="Track"/> + head in track seconds.
 /// Live decks: <see cref="Live"/> + head in analyzer seconds (column index / 100).</summary>
 public readonly record struct WaveInput(TrackWaveform? Track, WaveformAnalyzer? Live, double HeadSec, bool Playing, double Rate,
-    BeatGrid Grid, double? CueSec, double? LoopStartSec, double? LoopEndSec, bool Analyzing)
+    BeatGrid Grid, double? CueSec, double? LoopStartSec, double? LoopEndSec, bool Analyzing, double AheadSec = 0)
 {
     public bool Empty => Track == null && Live == null;
 }
@@ -128,8 +128,9 @@ public sealed class WaveformStrip : Control
         var px = l.Px; Array.Fill(px, Bg, 0, w * h);
         for (int x = 0; x < w; x++) px[cy * w + x] = Center;
         var inp = l.In;
-        double secPerPx = WindowSec / w, head = l.Head;
-        int centerX = w / 2;
+        var (windowSec, frac) = WaveView.Layout(Math.Max(_lanes[0].In.AheadSec, _lanes[1].In.AheadSec));
+        double secPerPx = windowSec / w, head = l.Head;
+        int centerX = (int)(w * frac);
         if (!inp.Empty)
         {
             float gain = inp.Track?.Gain ?? 1.6f, half = cy - 1;

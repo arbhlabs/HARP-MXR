@@ -110,23 +110,33 @@ public sealed class BeatClock
     public void Reset() { Valid = false; _lastPhase = double.NaN; _count = 0; Position = 0; }
 }
 
-/// <summary>One-line controller hints for the footer (default layout; Shift+F1 shows the live mapping).
-/// Pure and unit-tested so the wording always matches the default bindings in MAPPINGS.md.</summary>
+/// <summary>One-line controller hints for the footer, built from the LIVE bindings so they always match a remapped pad.
+/// Pure and unit-tested.</summary>
 public static class PadHints
 {
-    public static string For(bool shift, BankMode mode)
+    private static readonly (string Key, string Glyph)[] Order =
+    [
+        ("A", "A"), ("B", "B"), ("X", "X"), ("Y", "Y"), ("LeftShoulder", "LB"), ("RightShoulder", "RB"),
+        ("Up", "D↑"), ("Down", "D↓"), ("Left", "D←"), ("Right", "D→"), ("LeftThumb", "L3"), ("RightThumb", "R3"),
+        ("Back", "View"), ("Start", "Menu"),
+    ];
+
+    /// <summary>Short name of a bound action: the catalog label without its "(…)" detail, deck prefix dropped.</summary>
+    public static string Short(string action)
     {
-        if (!shift)
-            return $"{PadBanks.ModeName(mode)} bank: A B X Y pads · D-pad bank · LB/RB deck focus · LT bend · RT roll · R stick FX · R3 next FX · hold View+Menu = panic";
-        string pads = mode switch
-        {
-            BankMode.Chord => "A B X Y alt chords · D-pad ←/→ key",
-            BankMode.Drum => "A B X Y alt drums",
-            _ => "A B X Y capture last beat",
-        };
-        return $"SHIFT: {pads} · LT spin-back · RT reverse · LB quantize · RB sync · R3 freeze · View bank mode · Menu pad grid";
+        string id = action.StartsWith("Focus.") ? action[6..] : action.StartsWith("A.") || action.StartsWith("B.") ? action[2..] : action;
+        string label = ActionCatalog.Buttons.FirstOrDefault(a => a.Id == id)?.Label ?? id;
+        int cut = label.IndexOf(" (", StringComparison.Ordinal);
+        return (cut > 0 ? label[..cut] : label).Replace("Crossfader toward ", "fader→");
     }
 
-    public static string Connected(int slot, BankMode mode) =>
-        $"Controller {slot} connected. Hold View for SHIFT, Shift+F1 shows the full map. " + For(false, mode);
+    public static string For(bool shift, IReadOnlyDictionary<string, string> buttons)
+    {
+        var parts = Order.Where(o => buttons.TryGetValue(o.Key, out var a) && !string.IsNullOrWhiteSpace(a))
+                         .Select(o => $"{o.Glyph} {Short(buttons[o.Key])}");
+        return (shift ? "SHIFT: " : "") + string.Join(" · ", parts);
+    }
+
+    public static string Connected(int slot) =>
+        $"Controller {slot} connected. Hold View for SHIFT: this line then lists every shift button. Shift+F1 shows the full map.";
 }

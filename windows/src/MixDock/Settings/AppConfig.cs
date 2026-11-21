@@ -30,6 +30,16 @@ public sealed class AppConfig
     public int LatencyMs { get; set; } = 120;
     /// <summary>Process names (substring, case-insensitive) MixDock never captures or redirects.</summary>
     public List<string> ProtectedApps { get; set; } = new();
+    /// <summary>Look-ahead delay per deck (A, B) in seconds, 0..30: live audio is heard this much later so the waveform
+    /// shows what is coming. 0 keeps browser video in sync with the picture.</summary>
+    public double[] LookAheadSec { get; set; } = [DefaultLookAheadSec, DefaultLookAheadSec];
+    public const double DefaultLookAheadSec = 10, MaxLookAheadSec = 30;
+    public double LookAhead(int deck) => LookAheadSec.Length > deck ? LookAheadSec[deck] : DefaultLookAheadSec;
+    public void SetLookAhead(int deck, double sec)
+    {
+        if (LookAheadSec.Length < 2) LookAheadSec = [LookAhead(0), LookAhead(1)];
+        LookAheadSec[deck] = Math.Clamp(double.IsFinite(sec) ? sec : DefaultLookAheadSec, 0, MaxLookAheadSec);
+    }
     public int Crossfader { get; set; } = 50;
     public int Master { get; set; } = 88;
     public bool GamepadEnabled { get; set; } = true;
@@ -50,11 +60,12 @@ public sealed class AppConfig
         ["Ctrl+Alt+Shift+D"] = "A.Filter+",
         ["Ctrl+Alt+Shift+J"] = "B.Filter-",
         ["Ctrl+Alt+Shift+L"] = "B.Filter+",
-        ["Ctrl+Alt+Shift+M"] = "MasterMute"
+        ["Ctrl+Alt+Shift+M"] = "MasterMute",
+        ["Ctrl+Alt+Shift+Space"] = "PauseAll"
     };
     /// <summary>Config schema version. 0/1 = MixDock 1.0 (left stick X = crossfader); 2 = 1.1 pro mapping; 3 = 1.2 performance mode (right stick = FX pad); 4 = 1.3 MIDI pad (banks, chords, quantize, MIDI).</summary>
     public int ConfigVersion { get; set; }
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     // ---- 1.3 "MIDI Pad"
     /// <summary>The 4 pad banks (D-pad Up/Right/Down/Left). Defaults: Sample, One-shot, Chord, Drum.</summary>
@@ -109,7 +120,7 @@ public sealed class AppConfig
     public static Dictionary<string, string> DefaultAxes() => new()
     {
         ["LeftThumbY"] = "Focus.Filter",
-        ["LeftThumbX"] = "Crossfader",
+        ["LeftThumbX"] = "Focus.FxBlend",
         ["RightThumbX"] = "Focus.FxX",
         ["RightThumbY"] = "Focus.FxY",
         ["LeftTrigger"] = "Focus.EchoThrow",
@@ -127,16 +138,25 @@ public sealed class AppConfig
         ["X"] = "Focus.Roll:1/4", ["Y"] = "Focus.Roll:1/8",
         ["LeftShoulder"] = "FocusA", ["RightShoulder"] = "FocusB",
         ["Up"] = "Focus.LoopDouble", ["Down"] = "Focus.LoopHalve",
-        ["Left"] = "Focus.MidKill", ["Right"] = "Focus.HighKill",
+        ["Left"] = "Crossfader-", ["Right"] = "Crossfader+",
         ["LeftThumb"] = "Focus.FilterReset", ["RightThumb"] = "FxCycle",
         ["Back"] = "Focus.TapBpm", ["Start"] = "Focus.Sync"
     };
+    /// <summary>The 1.4.0 Live DJ buttons ("Classic"), kept for migration.</summary>
+    public static Dictionary<string, string> V5Buttons()
+    {
+        var b = DefaultButtons(); b["Left"] = "Focus.MidKill"; b["Right"] = "Focus.HighKill"; return b;
+    }
+    public static Dictionary<string, string> V5ShiftButtons()
+    {
+        var b = DefaultShiftButtons(); b["Up"] = "Bank:1"; b["Right"] = "Bank:2"; b["Down"] = "Bank:3"; b["Left"] = "Bank:4"; return b;
+    }
     public static Dictionary<string, string> DefaultShiftButtons() => new()
     {
         ["A"] = "Focus.Pad:1", ["B"] = "Focus.Pad:2",
         ["X"] = "Focus.Pad:3", ["Y"] = "Focus.Pad:4",
         ["LeftShoulder"] = "QuantCycle", ["RightShoulder"] = "CrossfaderReset",
-        ["Up"] = "Bank:1", ["Right"] = "Bank:2", ["Down"] = "Bank:3", ["Left"] = "Bank:4",
+        ["Up"] = "BankNext", ["Down"] = "BankPrev", ["Left"] = "Focus.MidKill", ["Right"] = "Focus.HighKill",
         ["LeftThumb"] = "Focus.EqReset", ["RightThumb"] = "FxFreeze",
         ["Back"] = "BankMode", ["Start"] = "Focus.PlayPause"
     };
@@ -276,6 +296,18 @@ public sealed class AppConfig
                 && (Same(ShiftAxes, PadShiftAxes()) || Same(ShiftAxes, DefaultShiftAxes()));
             if (untouched) ApplyPreset("Live DJ");
         }
+        if (ConfigVersion < 6)
+        {
+            // 1.5 Live DJ remap: D-pad left/right = crossfader, left stick X = FX blend, mid/high kill move to Shift+D-pad
+            // left/right and bank select to Shift+D-pad up/down (next/previous). Only an untouched 1.4 layout changes.
+            if (GamepadAxes.GetValueOrDefault("LeftThumbX") == "Crossfader" && Same(GamepadButtons, V5Buttons()) && Same(ShiftButtons, V5ShiftButtons()))
+            {
+                GamepadAxes["LeftThumbX"] = "Focus.FxBlend";
+                GamepadButtons = DefaultButtons(); ShiftButtons = DefaultShiftButtons();
+            }
+            Hotkeys.TryAdd("Ctrl+Alt+Shift+Space", "PauseAll");
+        }
+        SetLookAhead(0, LookAhead(0)); SetLookAhead(1, LookAhead(1));
         if (string.IsNullOrWhiteSpace(ShiftButton) && string.IsNullOrWhiteSpace(ShiftChord)) ShiftChord = "LeftShoulder+RightShoulder";
         Banks = NormalizeBanks(Banks);
         ActiveBank = Math.Clamp(ActiveBank, 0, 3);

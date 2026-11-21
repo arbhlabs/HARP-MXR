@@ -30,6 +30,9 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
     public int Discontinuities => Volatile.Read(ref _discont);
     public int SilentPackets => Volatile.Read(ref _silent);
     public DeckSource(SampleRing ring, DeckDsp dsp) { _ring = ring; _dsp = dsp; }
+    private volatile bool _frozen;
+    /// <summary>Live deck paused in MixDock: captured audio is dropped until resume (pairs with DeckReader.Frozen).</summary>
+    public bool Frozen { get => _frozen; set => _frozen = value; }
     public async Task StartAsync(int pid)
     {
         if (pid <= 0 || pid == Environment.ProcessId) throw new ArgumentException("Invalid target process");
@@ -66,6 +69,7 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
         do { cur = Volatile.Read(ref _rawPeakBits); if (BitConverter.Int32BitsToSingle(cur) >= rp) break; }
         while (Interlocked.CompareExchange(ref _rawPeakBits, BitConverter.SingleToInt32Bits(rp), cur) != cur);
         // Raw audio goes into the ring; EQ/trim run at render time (DeckReader) so knobs act instantly.
+        if (_frozen) return;   // deck paused in MixDock: the delay line, waveform and BPM all hold still
         Bpm.Feed(samples);
         Wave.Feed(samples);
         lock (History.Gate) { History.Write(samples); _ring.Write(samples); }

@@ -264,6 +264,7 @@ public sealed partial class MainForm : Form
             await deck.LoadFileAsync(path);
             if (_engine.OutputId == null) await _engine.SetOutputAsync((_outputs.SelectedItem as OutputEndpoint)?.Id ?? OutputPolicy.Pick(AudioDiscovery.Outputs(), null, AudioDiscovery.DefaultOutputId(), _takeoverA.SinkId, _takeoverB.SinkId)?.Id ?? throw new InvalidOperationException("No real audio output available"));
             panel.SetStatus($"LIVE · {deck.FileName}", true);
+            ClearLivePause(di); ApplyLookAhead(di);
             SetMessage($"Playing {deck.FileName} on Deck {(di == 0 ? "A" : "B")}.");
         }
         catch (Exception ex) { panel.SetStatus("Could not open that file"); SetMessage("Could not open that file: " + ex.Message, true); Log.Write("LoadSong: " + ex); }
@@ -324,6 +325,7 @@ public sealed partial class MainForm : Form
             panel.SetStatus("Taking over…");
             { int di = ReferenceEquals(panel, _a) ? 0 : 1; DeckSync.Reset(_engine, di); _monitor.ResetNudge(di); _engine.Mixer.Key(di).Reset(); }
             string status = await takeover.EngageAsync(requested.Pid, AppPicker.DisplayName(requested.Name));
+            { int di = ReferenceEquals(panel, _a) ? 0 : 1; ClearLivePause(di); ApplyLookAhead(di); }
             if (panel.SelectedPid == requested.Pid)
             {
                 panel.SetStatus(status, true);
@@ -344,6 +346,7 @@ public sealed partial class MainForm : Form
         if (!_preview && _tickCount > 0 && _tickCount % 300 == 0) LogStats();
         for (int d = 0; d < 2; d++)
         {
+            CheckPauseSource(d);
             var ds = d == 0 ? _engine.DeckA : _engine.DeckB;
             double dur = ds.Duration.TotalSeconds;
             _monitor.SetFile(d, ds.IsFile, dur > 0 ? Math.Clamp(ds.Position.TotalSeconds / dur, 0, 1) : 0, ds.IsFile ? $"{Mmss(ds.Position)} / {Mmss(ds.Duration)}" : "", ds.Paused);
@@ -408,6 +411,9 @@ public sealed partial class MainForm : Form
             case "QuantCycle": CycleQuantize(); break;
             case "BankMode": CycleBankMode(); break;
             case "PadGrid": ToggleGridFloat(); break;
+            case "PauseAll": PauseAll(); break;
+            case "BankNext": SetBank((_bank + 1) % 4); break;
+            case "BankPrev": SetBank((_bank + 3) % 4); break;
             default:
                 if (action.StartsWith("Bank:") && int.TryParse(action[5..], out int bn)) SetBank(bn - 1);
                 break;

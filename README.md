@@ -10,7 +10,7 @@
 |---|---|---|---|
 | App | Full app (WinForms) | Full app (SwiftUI) | **MixDock Lite** (terminal) |
 | Mix song files | Yes | Yes | Yes (any format ffmpeg reads) |
-| Mix live app audio (Spotify, browser) | Yes (process loopback) | Yes, macOS 14.4+ (process taps) | No |
+| Mix live app audio (Spotify, browser) | Yes (process loopback), with pause and up to 30 s waveform look-ahead | Yes, macOS 14.4+ (process taps) | No |
 | EQ, kills, filter, crossfader, limiter | Yes | Yes | Yes (same DSP code as Windows) |
 | Loops, rolls, FX pad, pads, chords, drums | Yes | Loops, rolls, FX, hot cues | No |
 | Xbox controller | Yes (XInput) | Yes (GameController) | Yes (`/dev/input/js*`) |
@@ -61,26 +61,29 @@ MixDock Lite is a terminal mixer for song files. It reuses the Windows app's dec
 
 ## Controller mapping
 
-### Windows (default layout; remap with **Mappings**, live cheat sheet with **PAD** or **Shift+F1**)
+### Windows (default "Live DJ" layout; remap with **Mappings**, live cheat sheet with **PAD** or **Shift+F1**)
 
-Hold **View** (or LB+RB) for **SHIFT**. While SHIFT is held, the footer lists what every button does in the current bank.
+Hold **View** (or LB+RB) for **SHIFT**. While SHIFT is held, the footer lists what every button does right now.
 
 | Input | Normal | SHIFT |
 |---|---|---|
-| Left stick up/down | Filter sweep (springs back) | same |
-| Left stick left/right | Filter fine creep (latches) | same |
-| Right stick | FX pad: distance = wet, direction = character | same |
-| R3 | Next FX (Space, Reverb, Flanger, Phaser, Crush, Gate, Echo) | Freeze reverb tail |
-| LT | Time bend / tape stop | Spin-back |
-| RT | Beat roll 1/4 to 1/32 by pressure | Reverse while held |
-| A B X Y | Pads 1-4 of the current bank | Capture / alternative chords / alternative drums |
-| D-pad | Bank 1-4 (Sample, One-shot, Chord, Drum) | Up loop, Down cue, Left/Right beatjump |
-| LB / RB (tap) | Focus deck A / B | Quantize / Sync |
-| View (tap) | Tap BPM | Bank mode |
-| Menu (tap) | AUTO MIX on/off | Pad grid window |
+| Left stick up/down | Filter: up = high-pass, down = low-pass, springs back to off | same |
+| Left stick left/right | **FX blend** (Kaoss style): roll right = echo, roll left = reverb, depth = how far you push; circling morphs filter into FX, release returns to dry | Filter fine creep (latches) |
+| Right stick | FX pad: distance = wet, direction = character (R3 picks the effect) | same |
+| LT / RT | Echo throw / beat roll (depth = speed) | Time bend / reverse |
+| A / B / X / Y | Bass kill / slip loop / roll 1/4 (hold) / roll 1/8 (hold) | Pads 1-4 of the current bank |
+| D-pad left/right | **Crossfader** toward A / B: tap nudges, hold sweeps and speeds up | Mid kill / high kill |
+| D-pad up/down | Loop size x2 / ÷2 | Next / previous pad bank |
+| LB / RB | Focus deck A / B | Quantize / crossfader centre |
+| L3 / R3 | Filter reset / next FX | EQ + kills reset / freeze reverb tail |
+| View (tap) / Menu | Tap BPM / sync | Bank mode / **pause or resume the focus deck** |
 | Hold View + Menu | Panic: silence everything | |
 
-Full details: [windows/docs/MAPPINGS.md](windows/docs/MAPPINGS.md).
+**Pause:** Shift+Menu pauses the focused deck. For a live app, MixDock sends pause to the app's Windows media session (Spotify, browser tabs). If the app has no session, the deck is **frozen** in MixDock instead and the app keeps playing unheard. **Pause all:** Ctrl+Alt+Shift+Space, or bind *Pause / resume all decks* in Mappings.
+
+**Look-ahead:** live decks are heard 10 s after capture (0-30 s per deck, under **Settings**), so the waveform shows what is coming up to the right of the playhead. Set a deck to 0 for browser video, so the sound stays in sync with the picture.
+
+The 1.4.0 layout (left stick X = crossfader, D-pad left/right = mid/high kill, Shift+D-pad = banks 1-4) is migrated automatically if you never edited it. An edited layout is left as it is. Full details: [windows/docs/MAPPINGS.md](windows/docs/MAPPINGS.md) (it describes the 1.3 pad layout, which is still available as the "Pad performer" preset).
 
 ### macOS
 

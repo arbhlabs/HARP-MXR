@@ -41,7 +41,8 @@ public sealed partial class MainForm
             double bpm = ds.Bpm.Bpm, ph = DeckSync.HeardPhase(_engine, d);
             // live grid: anchor the heard beat phase at the playhead
             var grid = bpm > 0 && !double.IsNaN(ph) ? new BeatGrid(bpm, head - ph * 60.0 / bpm) : default;
-            return new WaveInput(null, w, head, true, 1, grid, null, null, null, false);
+            // the look-ahead delay line is already analysed: draw it to the right of the playhead
+            return new WaveInput(null, w, head, !_livePaused[d], 1, grid, null, null, null, false, rd.BufferedMs / 1000.0);
         }
         return default;
     }

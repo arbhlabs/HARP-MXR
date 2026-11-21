@@ -239,7 +239,10 @@ public sealed partial class MainForm
             _titles[d].Text=src.IsFile?Path.GetFileName(src.FilePath):Panel(d).SelectedApp?.Name??"Choose an app or load a track";
             _times[d].Text=src.IsFile?$"{Mmss(src.Position)} / {Mmss(src.Duration)}":src.ActivePid!=null?"LIVE":"— / —";
             _cues[d].Active=d==0?_engine.Mixer.CueA:_engine.Mixer.CueB;_cues[d].Invalidate();
-            _plays[d].Text=src.IsFile?(src.Paused?"PLAY":"PAUSE"):"PLAY / PAUSE";_plays[d].Active=src.IsFile&&!src.Paused;_plays[d].Invalidate();
+            bool paused=DeckIsPaused(d),live=!src.IsFile&&src.ActivePid is >0;
+            _plays[d].Text=src.IsFile||live?(paused?(_pauseLabel[d]??"PAUSED")+" · PLAY":"PAUSE"):"PLAY / PAUSE";_plays[d].Active=(src.IsFile||live)&&!paused;_plays[d].Invalidate();
+            if(live&&paused)_times[d].Text=_pauseLabel[d]=="FROZEN"?"FROZEN · app still playing":"PAUSED";
+            else if(live&&Reader(d).LookAheadMs>0)_times[d].Text=$"LIVE · look-ahead {Reader(d).LookAheadMs/1000.0:0.#} s";
             if(src.IsFile&&src.FilePath!=null)
             {
                 var track=_tracks[d];double bpm=track?.Path==src.FilePath&&track.Grid.Valid?track.Grid.Bpm:0;
@@ -279,6 +282,16 @@ public sealed partial class MainForm
         if(!_preview)headphones.Items.AddRange(AudioDiscovery.Outputs().Where(o=>o.Id!=_engine.OutputId&&OutputPolicy.IsAllowed(o,_takeoverA.SinkId,_takeoverB.SinkId)).Cast<object>().ToArray());
         headphones.SelectedIndex=0;headphones.SelectionChangeCommitted+=async(_,_)=>{if(!_preview&&headphones.SelectedItem is OutputEndpoint o)await SafeAsync(async()=>{await _engine.SetCueOutputAsync(o.Id);_monitor.SetCueDevice(_engine.CueName,true);});};flow.Controls.Add(headphones);
         var refresh=new StudioButton{Text="Refresh apps and outputs",Size=new Size(610,32)};refresh.Click+=(_,_)=>{if(!_preview)RefreshDevices();};flow.Controls.Add(refresh);
+        flow.Controls.Add(new Label{Text="Waveform look-ahead for live apps (seconds, 0-30). The deck is heard this much later so the waveform shows what is coming. Use 0 for browser video, so sound matches the picture.",AutoSize=false,Width=610,Height=52,ForeColor=Theme.Muted});
+        var lookRow=new FlowLayoutPanel{AutoSize=true,FlowDirection=FlowDirection.LeftToRight,WrapContents=false};
+        for(int ld=0;ld<2;ld++)
+        {
+            int dd=ld;
+            var num=new NumericUpDown{Minimum=0,Maximum=(decimal)AppConfig.MaxLookAheadSec,DecimalPlaces=0,Increment=1,Width=80,Value=(decimal)_config.LookAhead(dd),AccessibleName=$"Deck {DeckName(dd)} look-ahead seconds"};
+            num.ValueChanged+=(_,_)=>{_config.SetLookAhead(dd,(double)num.Value);ApplyLookAhead(dd);try{if(!_preview)_config.Save();}catch(Exception ex){Log.Write("save look-ahead: "+ex.Message);}};
+            lookRow.Controls.Add(new Label{Text=$"Deck {DeckName(dd)}",AutoSize=true,Padding=new Padding(0,6,6,0)});lookRow.Controls.Add(num);
+        }
+        flow.Controls.Add(lookRow);
         var maps=new StudioButton{Text="Keyboard / controller mappings",Size=new Size(610,32)};maps.Click+=(_,_)=>OpenMappings();flow.Controls.Add(maps);
         var apply=new StudioButton{Text="Apply buffer now (brief output restart)",Size=new Size(610,32)};apply.Click+=async(_,_)=>{if(_preview)return;await SafeAsync(async()=>{await _audioChanges.WaitAsync();try{string? main=_engine.OutputId,cue=_engine.CueId;bool ca=_engine.Mixer.CueA,cb=_engine.Mixer.CueB;await _engine.StopCueAsync();await _engine.StopOutputAsync();if(main!=null)await _engine.SetOutputAsync(main);if(cue!=null)await _engine.SetCueOutputAsync(cue);_engine.Mixer.CueA=ca;_engine.Mixer.CueB=cb;}finally{_audioChanges.Release();}});};flow.Controls.Add(apply);
         return f;

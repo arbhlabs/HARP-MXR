@@ -148,19 +148,19 @@ var cm = custom.CreatePadMapper();
 Assert(Fired(Tap(cm, PadButton.A)) == "MasterMute" && Fired(Tap(cm, PadButton.B)) == "", "remapped buttons dispatch from config");
 var oldJson = """{"GamepadAxes":{"LeftThumbY":"A.Filter","RightThumbY":"B.Filter","LeftThumbX":"Crossfader"},"GamepadButtons":{"A":"A.FilterReset","B":"B.FilterReset","X":"A.Mute","Y":"B.Mute","LeftShoulder":"Crossfader-","RightShoulder":"Crossfader+","Start":"MasterMute"},"Master":70}""";
 var mig = AppConfig.FromJson(oldJson);
-Assert(mig.GamepadAxes["LeftThumbX"] == "Crossfader" && mig.GamepadAxes["RightThumbX"] == "Focus.FxX" && mig.GamepadButtons["X"] == "Focus.Roll:1/4"
+Assert(mig.GamepadAxes["LeftThumbX"] == "Focus.FxBlend" && mig.GamepadAxes["RightThumbX"] == "Focus.FxX" && mig.GamepadButtons["X"] == "Focus.Roll:1/4"
     && mig.ShiftButtons.Count == 14 && mig.Master == 70 && mig.ConfigVersion == AppConfig.CurrentVersion, "1.0 default config migrates to the Live DJ defaults, keeps other settings");
 var mig2 = AppConfig.FromJson("""{"GamepadAxes":{"LeftThumbY":"B.Filter","LeftThumbX":"Crossfader","RightTrigger":"Master"},"GamepadButtons":{"A":"B.Mute"}}""");
 Assert(mig2.GamepadAxes["LeftThumbX"] == "B.FilterFine" && mig2.GamepadAxes["RightThumbX"] == "Focus.FxX" && mig2.GamepadAxes["RightTrigger"] == "Master"
     && mig2.GamepadButtons.Count == 1, "custom 1.0 map: only LeftThumbX=Crossfader moves, the rest is kept");
 var mig3 = AppConfig.FromJson("""{"ConfigVersion":2,"GamepadAxes":{"LeftThumbX":"Crossfader"}}""");
 Assert(mig3.GamepadAxes["LeftThumbX"] == "Crossfader", "a 1.1 user who deliberately maps LeftThumbX=Crossfader is left alone");
-Assert(AppConfig.FromJson("{}").GamepadAxes["LeftThumbX"] == "Crossfader", "empty config gets the Live DJ defaults");
+Assert(AppConfig.FromJson("{}").GamepadAxes["LeftThumbX"] == "Focus.FxBlend", "empty config gets the Live DJ defaults (left stick X = FX blend)");
 {   // ConfigVersion 3 migration (1.1 -> 1.2)
     var v2 = AppConfig.FromJson("""{"ConfigVersion":2,"GamepadAxes":{"LeftThumbY":"Focus.Filter","LeftThumbX":"Focus.FilterFine","RightThumbX":"Crossfader","RightThumbY":"Focus.EchoSend","LeftTrigger":"Focus.EchoThrow","RightTrigger":"Riser"},"Master":61}""");
     Assert(v2.ConfigVersion == AppConfig.CurrentVersion && v2.GamepadAxes["RightThumbX"] == "Focus.FxX" && v2.GamepadAxes["RightThumbY"] == "Focus.FxY" && v2.GamepadAxes["LeftTrigger"] == "Focus.EchoThrow"
         && v2.GamepadAxes["RightTrigger"] == "Focus.BeatRoll" && v2.ShiftAxes["RightTrigger"] == "Focus.Reverse" && v2.ShiftAxes["LeftTrigger"] == "Focus.TimeBend" && v2.Master == 61, "1.1 default axes migrate through 1.3 to the Live DJ mapping");
-    Assert(v2.GamepadAxes["RightThumbX"] != "Crossfader" && v2.GamepadAxes["LeftThumbX"] == "Crossfader", "crossfader moved from the right stick to left stick X");
+    Assert(v2.GamepadAxes["RightThumbX"] != "Crossfader" && v2.GamepadAxes["LeftThumbX"] == "Focus.FxBlend" && v2.GamepadButtons["Left"] == "Crossfader-", "crossfader moved from the right stick to the D-pad (left stick X = FX blend)");
     var v2c = AppConfig.FromJson("""{"ConfigVersion":2,"GamepadAxes":{"RightThumbX":"Crossfader","RightThumbY":"B.Trim","RightTrigger":"Master"},"GamepadButtons":{"RightThumb":"Focus.Loop","A":"MasterMute"}}""");
     Assert(v2c.GamepadAxes["RightThumbX"] == "Focus.FxX" && v2c.GamepadAxes["RightThumbY"] == "B.Trim" && v2c.GamepadAxes["RightTrigger"] == "Master" && v2c.GamepadButtons["RightThumb"] == "FxCycle" && v2c.GamepadButtons["A"] == "MasterMute", "customised 1.1 map keeps user bindings, only crossfader-on-RS and R3 loop move");
     var v3 = AppConfig.FromJson("""{"ConfigVersion":3,"GamepadAxes":{"RightThumbX":"Crossfader"}}""");
@@ -189,12 +189,56 @@ Assert(PadMapper.Parse("LeftShoulder+RightShoulder") == (PadButton.LeftShoulder 
     int w = 0; for (int i = 0; i < 300; i++) if (slow.Update(0, 1 / 60.0) != null) w++;
     Assert(w == 0, "no writes at rest with 60 ms smoothing");
 }
-// controller hints match the default layout and change with SHIFT and the bank mode
+// controller hints are built from the live bindings
 {
-    string hint = PadHints.For(false, BankMode.Sample), sh = PadHints.For(true, BankMode.Sample);
-    Assert(hint.Contains("LT bend") && hint.Contains("RT roll") && hint.Contains("View+Menu"), "normal hint names triggers and panic");
-    Assert(sh.StartsWith("SHIFT") && sh.Contains("capture") && sh.Contains("RB sync"), "shift hint names capture and sync");
-    Assert(PadHints.For(true, BankMode.Chord).Contains("alt chords") && PadHints.For(true, BankMode.Drum).Contains("alt drums"), "shift hint follows the bank mode");
-    Assert(PadHints.Connected(1, BankMode.Drum).Contains("Shift+F1") && PadHints.Connected(1, BankMode.Drum).Contains(PadBanks.ModeName(BankMode.Drum)), "connect hint points at the full map");
+    var c = new AppConfig();
+    string sh = PadHints.For(true, c.ShiftButtons), nh = PadHints.For(false, c.GamepadButtons);
+    Assert(sh.StartsWith("SHIFT: ") && sh.Contains("Menu Play / pause") && sh.Contains("D← Mid kill") && sh.Contains("D↑ Next pad bank"), "shift hint lists pause, kills and banks");
+    Assert(nh.Contains("D← fader→A") && nh.Contains("D→ fader→B") && !nh.StartsWith("SHIFT"), "normal hint shows the D-pad crossfader");
+    c.ShiftButtons["Start"] = "PauseAll";
+    Assert(PadHints.For(true, c.ShiftButtons).Contains("Menu Pause / resume all decks"), "a remapped button shows its new action");
+    Assert(PadHints.Connected(2).Contains("Controller 2") && PadHints.Connected(2).Contains("Shift+F1"), "connect hint points at the full map");
+}
+// 1.5 remap: D-pad crossfader with acceleration, left stick FX blend, migration of an untouched 1.4 layout only
+{
+    var c = new AppConfig();
+    Assert(c.GamepadButtons["Left"] == "Crossfader-" && c.GamepadButtons["Right"] == "Crossfader+", "D-pad left/right = crossfader");
+    Assert(c.GamepadAxes["LeftThumbY"] == "Focus.Filter" && c.GamepadAxes["LeftThumbX"] == "Focus.FxBlend", "left stick: Y filter, X FX blend");
+    Assert(c.GamepadAxes["RightThumbX"] == "Focus.FxX" && c.GamepadAxes["RightThumbY"] == "Focus.FxY", "right stick keeps the FX pad");
+    Assert(c.ShiftButtons["Left"] == "Focus.MidKill" && c.ShiftButtons["Right"] == "Focus.HighKill" && c.ShiftButtons["Up"] == "BankNext" && c.ShiftButtons["Down"] == "BankPrev", "mid/high kill and bank select move to Shift+D-pad");
+    Assert(c.ShiftButtons["Start"] == "Focus.PlayPause", "Shift+Menu pauses the focus deck");
+    Assert(BeatQuant.NudgeStep(0) == 2 && BeatQuant.NudgeStep(3) == 3 && BeatQuant.NudgeStep(100) == 6, "crossfader nudge: tap 2, accelerates to 6");
+    var m = c.CreatePadMapper(); var evs = new List<PadEvent>(); long tm = 0;
+    for (int i = 0; i < 40; i++) evs.AddRange(m.Update(PadButton.Right, tm += 20));
+    Assert(evs.Count(e => e.Action == "Crossfader+" && e.Kind == PadEventKind.Press) == 1 && evs.Count(e => e.Action == "Crossfader+" && e.Kind == PadEventKind.Repeat) >= 5, "holding D-pad right repeats the crossfader nudge");
+    var v5 = new AppConfig { ConfigVersion = 5, GamepadButtons = AppConfig.V5Buttons(), ShiftButtons = AppConfig.V5ShiftButtons() };
+    v5.GamepadAxes["LeftThumbX"] = "Crossfader";
+    var up = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(v5));
+    Assert(up.GamepadButtons["Left"] == "Crossfader-" && up.GamepadAxes["LeftThumbX"] == "Focus.FxBlend" && up.ShiftButtons["Left"] == "Focus.MidKill" && up.ConfigVersion == AppConfig.CurrentVersion, "untouched 1.4 layout migrates to the 1.5 remap");
+    v5.GamepadButtons["A"] = "MasterMute";
+    var kept = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(v5));
+    Assert(kept.GamepadButtons["Left"] == "Focus.MidKill" && kept.GamepadAxes["LeftThumbX"] == "Crossfader" && kept.GamepadButtons["A"] == "MasterMute", "an edited 1.4 layout is left alone");
+    Assert(kept.Hotkeys["Ctrl+Alt+Shift+Space"] == "PauseAll", "pause-all hotkey added on migration");
+}
+// look-ahead config: default 10 s, clamped 0..30, survives a save/load round trip
+{
+    var c = new AppConfig();
+    Assert(c.LookAhead(0) == 10 && c.LookAhead(1) == 10, "look-ahead defaults to 10 s per deck");
+    c.SetLookAhead(0, 0); c.SetLookAhead(1, 99);
+    Assert(c.LookAhead(0) == 0 && c.LookAhead(1) == 30, "look-ahead clamps to 0..30 and allows 0 per deck");
+    var back = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(c));
+    Assert(back.LookAhead(0) == 0 && back.LookAhead(1) == 30, "look-ahead persists through config.json");
+    Assert(AppConfig.FromJson("""{"ConfigVersion":6,"LookAheadSec":[-5]}""").LookAhead(1) == 10 && AppConfig.FromJson("""{"ConfigVersion":6,"LookAheadSec":[-5]}""").LookAhead(0) == 0, "broken look-ahead values are repaired");
+}
+// media session matching: the deck's captured process finds its Windows media session
+{
+    var s = new List<MediaSessionInfo> { new("chrome.exe", false), new("Spotify.exe", true), new("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", false), new("msedge.exe", true), new("308046B0AF4A39CB", true) };
+    Assert(MediaSessionMatch.Pick(s, "Spotify", wantPause: true) == 1, "Spotify desktop: exact exe, playing session chosen to pause");
+    Assert(MediaSessionMatch.Pick(s, "Spotify", wantPause: false) == 2, "resume prefers the paused Spotify session");
+    Assert(MediaSessionMatch.Pick(s, "chrome", true) == 0 && MediaSessionMatch.Pick(s, "msedge.exe", true) == 3, "browsers match by exe name");
+    Assert(MediaSessionMatch.Pick(s, "firefox", true) == -1 && MediaSessionMatch.Pick(s, "", true) == -1, "no session: -1 (deck freezes instead)");
+    Assert(MediaSessionMatch.Score("Vivaldi.ABC123", "vivaldi") == 2 && MediaSessionMatch.Score("Spotify.exe", "spot") == 0, "packaged ids match a whole part; short substrings never match");
+    var two = new List<MediaSessionInfo> { new("chrome.exe", false), new("chrome.exe", true) };
+    Assert(MediaSessionMatch.Pick(two, "chrome", true) == 1, "two browser sessions: pause hits the one that is playing");
 }
 Console.WriteLine($"{n} gamepad tests passed");

@@ -6,7 +6,9 @@ namespace MixDock.Audio;
 
 public sealed class AudioEngine : IAsyncDisposable
 {
-    private readonly SampleRing _aBuffer = new(44100 * 4), _bBuffer = new(44100 * 4);
+    private readonly SampleRing _aBuffer = new(RingFrames), _bBuffer = new(RingFrames);
+    /// <summary>Deck rings hold the look-ahead delay line (up to 30 s) plus latency and overrun headroom.</summary>
+    public const int RingFrames = 44100 * (DeckReader.MaxLookAheadMs / 1000 + 4);
     public readonly DeckDsp A = new(), B = new();
     public readonly DeckReader ReaderA, ReaderB;
     public readonly MasterMixer Mixer;

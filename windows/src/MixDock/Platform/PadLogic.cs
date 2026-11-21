@@ -86,4 +86,7 @@ public static class BeatQuant
     public static double StepLoop(double beats, bool up) => Math.Clamp(up ? beats * 2 : beats / 2, 1.0 / 32, 16);
 
     public static string BeatsLabel(double beats) => beats >= 1 ? $"{beats:0}" : $"1/{Math.Round(1 / beats):0}";
+
+    /// <summary>D-pad crossfader nudge: a tap moves 2 % and holding accelerates to 6 % per 60 ms repeat (about 1.5 s end to end).</summary>
+    public static int NudgeStep(int repeats) => Math.Clamp(2 + repeats / 3, 2, 6);
 }

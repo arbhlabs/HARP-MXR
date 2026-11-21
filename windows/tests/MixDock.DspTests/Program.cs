@@ -235,4 +235,37 @@ Assert(Math.Abs(Level(new(Filter:-0.501, Trim:1), 3000) - Level(new(Filter:-0.5,
     Assert(MixDock.Platform.OutputPolicy.Pick(new List<MixDock.Platform.OutputEndpoint> { devs[0], devs[1] }, null, "c") == null, "only virtual devices: no output chosen");
 }
 
+// ---------------- look-ahead delay line, pause freeze / resume, left-stick FX blend ----------------
+{
+    var ringL = new SampleRing(44100 * 34);
+    var rd = new DeckReader(ringL, new DeckDsp { Parameters = new DeckParameters(Trim: 1) }) { LookAheadMs = 2000 };
+    var blockIn = new float[1024]; Array.Fill(blockIn, .5f);
+    var outB = new float[1024];
+    int firstSound = -1;
+    for (int i = 0; i < 400 && firstSound < 0; i++)
+    {
+        ringL.Write(blockIn); rd.Read(outB);
+        if (outB.Any(v => Math.Abs(v) > 1e-3)) firstSound = i;
+    }
+    double heardAfterMs = firstSound * 512 * 1000.0 / 44100;
+    Assert(Math.Abs(heardAfterMs - (2000 + DeckReader.DefaultTargetMs)) < 30, $"look-ahead: first sound after {heardAfterMs:0} ms (2 s delay + {DeckReader.DefaultTargetMs} ms latency)");
+    for (int i = 0; i < 40; i++) { ringL.Write(blockIn); rd.Read(outB); }
+    int bufferedBefore = rd.BufferedMs;
+    Assert(Math.Abs(bufferedBefore - 2120) < 30, $"steady state keeps the delay line full ({bufferedBefore} ms)");
+    rd.Frozen = true; rd.Read(outB); rd.Read(outB);
+    Assert(outB.All(v => v == 0), "frozen deck is silent after its 3 ms fade");
+    for (int i = 0; i < 50; i++) rd.Read(outB);   // paused: capture writes nothing, the reader takes nothing
+    Assert(rd.BufferedMs == bufferedBefore, "pause freezes the delay line (no audio consumed)");
+    rd.Frozen = false; rd.Read(outB);
+    Assert(Math.Abs(outB[0]) < .01f && Math.Abs(outB[^1] - .5f) < .02f, "resume fades in over 5 ms and continues with the buffered audio");
+    rd.LookAheadMs = 0; ringL.Write(blockIn); rd.Read(outB);
+    Assert(rd.BufferedMs < 300, $"look-ahead 0 skips ahead to low latency ({rd.BufferedMs} ms)");
+    var (l0, r0) = FxCurves.SideBlend(0, 1); var (l1, r1) = FxCurves.SideBlend(1, 0); var (l2, r2) = FxCurves.SideBlend(-1, 0);
+    Assert(l0 == 0 && r0 == 0, "FX blend: straight up is pure filter (dry)");
+    Assert(r1 > .99 && l1 == 0 && l2 > .99 && r2 == 0, "FX blend: full right = echo, full left = reverb");
+    var (_, rd45) = FxCurves.SideBlend(.7071, .7071);
+    Assert(rd45 > .6 && rd45 < .8, $"FX blend: diagonal is a half-way morph ({rd45:0.00})");
+    Assert(FxCurves.SideBlend(.1, 0) == (0, 0) && FxCurves.SideBlend(-.15, .1) == (0, 0), "FX blend: deadzone returns cleanly to dry");
+}
+
 Console.WriteLine($"ALL {count} TESTS PASSED");

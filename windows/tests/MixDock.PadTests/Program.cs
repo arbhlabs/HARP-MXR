@@ -73,7 +73,7 @@ const int Sr = 44100;
     {   // a real user file: written back as ConfigVersion 2 by an old build but holding the untouched 1.3 layout
         var p = new AppConfig(); p.ApplyPreset("Pad performer"); p.ConfigVersion = 2;
         var back = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(p));
-        Assert(back.GamepadButtons["A"] == "Focus.LowKill" && back.GamepadAxes["LeftThumbX"] == "Crossfader" && back.ConfigVersion == AppConfig.CurrentVersion, "untouched 1.3 layout saved as v2 becomes Live DJ");
+        Assert(back.GamepadButtons["A"] == "Focus.LowKill" && back.GamepadAxes["LeftThumbX"] == "Focus.FxBlend" && back.ConfigVersion == AppConfig.CurrentVersion, "untouched 1.3 layout saved as v2 becomes Live DJ");
         var edited = new AppConfig(); edited.ApplyPreset("Pad performer"); edited.ConfigVersion = 4; edited.GamepadButtons["A"] = "MasterMute";
         var kept = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(edited));
         Assert(kept.GamepadButtons["A"] == "MasterMute" && kept.GamepadButtons["Up"] == "Bank:1", "an edited 1.3 layout is left exactly as it is");

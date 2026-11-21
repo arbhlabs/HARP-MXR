@@ -26,6 +26,18 @@ public static class FxCurves
         double v = Math.Min(1, (r - deadzone) / (1 - deadzone));
         return v * v * (3 - 2 * v);
     }
+    /// <summary>Left-stick XY blend (Kaoss style): depth follows the stick distance (same deadzone and soft curve as
+    /// <see cref="Amount"/>), the side share |x| / r decides how much of it is FX, so straight up/down is pure filter and
+    /// rolling to a side morphs into the effect. Returns (left, right) wet amounts 0..1.</summary>
+    public static (double Left, double Right) SideBlend(double x, double y, double deadzone = DefaultDeadzone)
+    {
+        double depth = Amount(x, y, deadzone);
+        if (depth <= 0) return (0, 0);
+        double side = Math.Abs(x) / Math.Sqrt(x * x + y * y);
+        double wet = depth * side;
+        return x < 0 ? (wet, 0) : (0, wet);
+    }
+
     /// <summary>Stick axis -1..1 to a parameter 0..1 (centre = 0.5).</summary>
     public static double Param(double axis) => double.IsFinite(axis) ? Math.Clamp(.5 + .5 * axis, 0, 1) : .5;
 
