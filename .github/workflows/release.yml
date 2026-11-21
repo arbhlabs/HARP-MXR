@@ -1,24 +1,51 @@
 name: release
-# Push a tag like v1.4.0 to build Windows, macOS and Linux packages and attach them to a GitHub Release.
+# Keeps the Releases page current. On every push to main, if the version in MixDock.csproj has no release yet,
+# the Windows build is tested, published and attached to a new GitHub Release (tag v<version>).
+# Pushing a v* tag by hand, or running this workflow by hand, does the same for that commit.
+# Windows is the only released platform; macOS and Linux are built in ci.yml only, never attached here.
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' windows/src/MixDock/MixDock.csproj | head -n 1)
+          fi
+          [ -n "$VERSION" ] || { echo "no version found"; exit 1; }
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then RELEASE=false; else RELEASE=true; fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version $VERSION, release needed: $RELEASE"
+
   windows:
+    needs: plan
+    if: needs.plan.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     defaults: { run: { working-directory: windows, shell: pwsh } }
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '9.0.x' }
-      - name: Version
-        run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
-          "VERSION=$v" | Out-File -Append $env:GITHUB_ENV
       - name: Unit test suites
         run: |
           foreach ($t in 'Dsp','Gamepad','Waveform','Pad','Sync','Routing','AudioTiming','Remote') {
@@ -32,52 +59,13 @@ jobs:
             -p:PublishSingleFile=true -p:DebugType=none -p:Version=$env:VERSION -p:FileVersion="$num.0" -o out/MixDock
           Copy-Item ../LICENSE out/MixDock/
           Compress-Archive -Path out/MixDock/* -DestinationPath "../HARP-MXR-$env:VERSION-windows-x64.zip"
+          (Get-FileHash "../HARP-MXR-$env:VERSION-windows-x64.zip" -Algorithm SHA256).Hash + "  HARP-MXR-$env:VERSION-windows-x64.zip" | Out-File "../HARP-MXR-$env:VERSION-windows-x64.zip.sha256" -Encoding ascii
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: 'HARP-MXR-*-windows-x64.zip', if-no-files-found: error }
-
-  macos:
-    runs-on: macos-15
-    defaults: { run: { working-directory: macos } }
-    steps:
-      - uses: actions/checkout@v4
-      - name: Version
-        run: echo "VERSION=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0)" >> "$GITHUB_ENV"
-      - run: swift test
-      - name: Build universal app, ad-hoc sign, make DMG (hdiutil)
-        run: bash scripts/bundle.sh
-      - name: Verify signature and DMG
-        run: |
-          set -euo pipefail
-          codesign --verify --deep --strict --verbose=2 dist/MixDock.app
-          lipo -archs dist/MixDock.app/Contents/MacOS/MixDock
-          hdiutil verify dist/MixDock.dmg
-          mv dist/MixDock.dmg "../HARP-MXR-$VERSION-macos-universal.dmg"
-      - uses: actions/upload-artifact@v4
-        with: { name: macos, path: 'HARP-MXR-*-macos-universal.dmg', if-no-files-found: error }
-
-  linux:
-    runs-on: ubuntu-22.04   # older glibc, so the binary runs on more distributions
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '9.0.x' }
-      - name: Publish and self-test
-        run: |
-          set -euo pipefail
-          VERSION=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev)
-          D="HARP-MXR-Lite-$VERSION-linux-x64"
-          dotnet publish linux -c Release -r linux-x64 --self-contained true \
-            -p:PublishSingleFile=true -p:DebugType=none -p:Version="$VERSION" -o "$D"
-          "./$D/mixdock" --selftest
-          cp LICENSE linux/packaging/README-linux.txt "$D/"
-          chmod +x "$D/mixdock"
-          tar czf "$D.tar.gz" "$D"
-      - uses: actions/upload-artifact@v4
-        with: { name: linux, path: 'HARP-MXR-Lite-*-linux-x64.tar.gz', if-no-files-found: error }
+        with: { name: windows, path: 'HARP-MXR-*-windows-x64.zip*', if-no-files-found: error }
 
   publish:
-    if: github.ref_type == 'tag'
-    needs: [windows, macos, linux]
+    needs: [plan, windows]
+    if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -87,6 +75,7 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" \
-            --title "HARP//MXR $GITHUB_REF_NAME" --generate-notes
+          gh release create "v$VERSION" assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "HARP//MXR v$VERSION (Windows)" --generate-notes --latest

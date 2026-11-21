@@ -9,14 +9,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>MixDock</AssemblyName>
     <RootNamespace>MixDock</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <AssemblyTitle>HARP//MXR</AssemblyTitle>
     <Product>HARP//MXR</Product>
     <Company>ARBH Labs</Company>
     <Copyright>(c) ARBH Labs</Copyright>
     <Description>Per-app DJ mixer for Windows</Description>
     <ApplicationIcon>MixDock.ico</ApplicationIcon>
-    <FileVersion>1.4.0.0</FileVersion>
+    <FileVersion>1.4.1.0</FileVersion>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

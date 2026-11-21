@@ -24,14 +24,16 @@ jobs:
       - name: Build app
         run: dotnet build src/MixDock/MixDock.csproj -c Release
 
-  macos:
+  macos:   # in development, not released: must not turn the main branch red
+    continue-on-error: true
     runs-on: macos-15
     defaults: { run: { working-directory: macos } }
     steps:
       - uses: actions/checkout@v4
       - run: swift test
 
-  linux:
+  linux:   # in development, not released: must not turn the main branch red
+    continue-on-error: true
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
