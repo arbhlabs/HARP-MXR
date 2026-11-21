@@ -72,7 +72,7 @@ public sealed class SyncController
     /// <summary>Make <paramref name="slave"/> follow the other deck.</summary>
     public void Enable(int slave) => _cmds.Enqueue(() =>
     {
-        _slave = slave; _master = 1 - slave; _needInitial = true; _integ = 0; _hold = 0; _bigErr = 0; _waitFrames = 0;
+        _slave = slave; _master = 1 - slave; _needInitial = true; _acquire = false; _relabel = 0; _lastRaw = double.NaN; _lastW = 0; _lastPs = _lastPm = 0; _relabelFreeze = 0; _integ = 0; _hold = 0; _bigErr = 0; _waitFrames = 0;
         _slewPerSec[0] = _slewPerSec[1] = 0.05; Publish();
         _status = "SYNC: waiting for the beat…"; Volatile.Write(ref _status, _status);
     });
@@ -173,6 +173,27 @@ public sealed class SyncController
         double W = bar ? 4 : 1;
         double hs = ps.HeadPos, hm = pm.HeadPos;
         double e = Wrap(gs.BeatPos(hs) - gm.BeatPos(hm) * kMul, W);
+        if (!_d[s].IsFile)
+        {
+            // Live decks: the beat detector sometimes re-labels its grid (which kick is "the" beat at half/double tempo, which
+            // beat is the downbeat). The audio did not move, so the lock must not chase it: a sudden step in the measured
+            // phase is absorbed as an offset. A new tempo (next song) or a new bar/beat mode starts a fresh line-up instead.
+            bool newTempo = _lastPs > 0 && (Math.Abs(gs.PeriodFrames / _lastPs - 1) > 0.004 || Math.Abs(gm.PeriodFrames / _lastPm - 1) > 0.004);
+            if (newTempo || (_lastW > 0 && W != _lastW)) { _needInitial = true; _acquire = false; _relabel = 0; _lastRaw = double.NaN; }
+            if (_relabelFreeze > 0) { _relabelFreeze -= frames; _relabel = 0; _lastRaw = double.NaN; }
+            else if (!double.IsNaN(_lastRaw))
+            {
+                double step = Wrap(e - _lastRaw, W);
+                if (Math.Abs(step) > 0.12)
+                {
+                    double snap = Math.Round(step * 2) / 2;            // a re-label moves the grid by whole or half beats exactly
+                    if (Math.Abs(step - snap) < 0.1) { _relabel = Wrap(_relabel + snap, W); Interlocked.Increment(ref _relabels); }
+                    else { _needInitial = true; _acquire = false; _relabel = 0; }
+                }
+            }
+            _lastRaw = e; _lastW = W; _lastPs = gs.PeriodFrames; _lastPm = gm.PeriodFrames;
+            e = Wrap(e - _relabel, W);
+        }
         double eSec = e * gs.PeriodFrames / Math.Max(0.5, _rate[s]) / Fs;
         Volatile.Write(ref _phaseMs, eSec * 1000);
 
@@ -181,27 +202,63 @@ public sealed class SyncController
         {
             double a = Math.Abs(eSec);
             if (a > 0.040) _bigErr++; else _bigErr = 0;
-            if ((_needInitial && a > 0.003) || _bigErr > 8)
+            // Live app decks line up by a jump only once, and only forward. Afterwards the PI loop below pulls the phase in
+            // by speed alone: a re-jump on every beat-grid wobble was heard as the music skipping back and replaying.
+            if ((_needInitial && a > 0.003) || (_bigErr > 8 && _d[s].IsFile))
             {
-                Rephase(s, ps, gs, -e * gs.PeriodFrames, W, initial: true);
-                _needInitial = false; _bigErr = 0; _integ = 0; _hold = (long)(0.12 * Fs);
+                bool jumped = Rephase(s, ps, gs, -e * gs.PeriodFrames, W, initial: true);
+                // a live deck without enough buffered audio to skip forward eases into place by slowing down (never replays)
+                _acquire = !jumped && !_d[s].IsFile;
+                _needInitial = false; _bigErr = 0; _integ = 0; _hold = jumped ? (long)(0.12 * Fs) : 0;
+                if (jumped) _relabelFreeze = (long)(0.2 * Fs);
+            }
+            else if (_acquire && a > 0.040)
+            {
+                double early = e < 0 ? e + W : e;                                   // beats the slave is ahead, 0..W
+                double corr = Math.Clamp(early * gs.PeriodFrames / Fs / 1.5, 0.005, 0.08);
+                SetTargets(s, m, ts * (1 - corr), tm, ps, pm);
+                Volatile.Write(ref _status, "SYNC: easing the beat into place…");
             }
             else
             {
-                _needInitial = false;
+                _needInitial = false; _acquire = false;
                 _integ = Math.Clamp(_integ + eSec * dt / 9.0, -0.003, 0.003);
                 double corr = Math.Clamp(eSec / 1.5 + _integ, -0.02, 0.02);
-                _tgt[s] = ts * (1 - corr); _tgt[m] = tm;
+                SetTargets(s, m, ts * (1 - corr), tm, ps, pm);
                 Volatile.Write(ref _status, a < 0.002 ? $"SYNC locked · {gm.Bpm * _rate[m]:F2} BPM" : $"SYNC locking… {eSec * 1000:+0.0;-0.0} ms");
             }
         }
-        if (_hold > 0) { _tgt[s] = ts * (1 - Math.Clamp(_integ, -0.02, 0.02)); _tgt[m] = tm; }
+        if (_hold > 0) SetTargets(s, m, ts * (1 - Math.Clamp(_integ, -0.02, 0.02)), tm, ps, pm);
 
         // ---- delay-buffer limits: re-phase one bar (or beat) at a phrase boundary when a deck nears either end
         LimitsText = BuildLimits(s, m, gs, gm);
         MaintainLead(s, ps, gs, bar); MaintainLead(m, pm, gm, bar);
     }
 
+    private readonly bool[] _starved = new bool[2]; private bool _acquire;
+    private double _relabel, _lastRaw = double.NaN, _lastW, _lastPs, _lastPm; private long _relabelFreeze; private int _relabels;
+    /// <summary>Beat-grid re-labellings that were absorbed without moving the audio (live decks).</summary>
+    public int GridRelabels => Volatile.Read(ref _relabels);
+    /// <summary>A live deck whose delay buffer is nearly empty cannot run faster than real time, and it must never replay a
+    /// bar to refill it. That deck is held at real time and the other deck takes the whole speed difference (same ratio,
+    /// so the beats stay locked) until the buffer has recovered.</summary>
+    private void SetTargets(int s, int m, double rs, double rm, HistoryPlayer ps, HistoryPlayer pm)
+    {
+        double low = (LeadMinMs + 150) * Fs / 1000, ok = low + 0.4 * Fs;
+        Starve(s, ps.Lead, low, ok); Starve(m, pm.Lead, low, ok);
+        if (_starved[s] && rs > 1) { rm /= rs; rs = 1; }
+        if (_starved[m] && rm > 1) { rs /= rm; rm = 1; }
+        // too little buffered audio to be safe: both decks ease 1.5 % slower together (beats stay locked) until it is rebuilt
+        double build = 0.985;
+        if (!_d[s].IsFile && ps.Lead < low && rs > build) { rm *= build / rs; rs = build; }
+        if (!_d[m].IsFile && pm.Lead < low && rm > build) { rs *= build / rm; rm = build; }
+        _tgt[s] = rs; _tgt[m] = rm;
+    }
+    private void Starve(int d, double lead, double low, double ok)
+    {
+        if (_d[d].IsFile) { _starved[d] = false; return; }
+        if (lead < low) _starved[d] = true; else if (lead > ok) _starved[d] = false;
+    }
     private string BuildLimits(int s, int m, TempoGrid gs, TempoGrid gm)
     {
         if (_d[s].IsFile && _d[m].IsFile) return "File decks: no limit.";
@@ -231,7 +288,8 @@ public sealed class SyncController
         if (!crossed || _hold > 0) return;
         bool phraseLine = g.DownKnown && g.BarInPhrase(pl.HeadPos, 16) == 0;
         if (!(hardLow || hardHigh || phraseLine || !g.DownKnown)) return;
-        double delta = (soonLow || hardLow) ? -unit : unit;          // low: replay a bar (more lead); high: skip a bar
+        double delta = (soonLow || hardLow) ? -unit : unit;          // high: skip a bar. Low: live decks are held at real time instead (never replayed)
+        if (delta < 0) return;
         if (delta > 0 && lead - delta < lo + 0.05 * Fs) return;
         if (delta < 0 && lead - delta > hi) return;
         pl.Jump(delta, (int)(JumpXfadeMs * Fs / 1000));
@@ -241,7 +299,7 @@ public sealed class SyncController
     }
 
     /// <summary>Move the slave so its beat (bar) lines up with the master: shift by 'want' input frames, picking the option that keeps the lead in range.</summary>
-    private void Rephase(int s, HistoryPlayer pl, TempoGrid gs, double want, double w, bool initial)
+    private bool Rephase(int s, HistoryPlayer pl, TempoGrid gs, double want, double w, bool initial)
     {
         double lead = pl.Lead, lo = LeadMinMs * Fs / 1000 + 0.05 * Fs, hi = _d[s].IsFile ? 0.3 * Fs : LeadMaxMs * Fs / 1000;
         double unit = w * gs.PeriodFrames, best = double.NaN;
@@ -249,10 +307,12 @@ public sealed class SyncController
         {
             double nl = lead - c;
             if (nl < lo || nl > hi) continue;
+            if (c < 0 && !_d[s].IsFile) continue;                    // live audio is never replayed
             if (double.IsNaN(best) || Math.Abs(c) < Math.Abs(best)) best = c;
         }
-        if (double.IsNaN(best)) { Volatile.Write(ref _status, "SYNC: not enough delay buffer to line up the beat yet."); return; }
+        if (double.IsNaN(best)) { Volatile.Write(ref _status, _d[s].IsFile ? "SYNC: not enough delay buffer to line up the beat yet." : "SYNC: easing the beat into place…"); return false; }
         pl.Jump(best, (int)(JumpXfadeMs * Fs / 1000));
-        Log.Write($"SYNC deck {s}: lined up the beat (jump {best / Fs * 1000:+0;-0} ms, lead {lead / Fs * 1000:F0} ms)");
+        Log.Write($"SYNC deck {s}: lined up the beat (jump {best / Fs * 1000:+0;-0} ms, lead {lead / Fs * 1000:F0} ms)");        return true;
+
     }
 }

@@ -21,6 +21,16 @@ public sealed class SampleRing
         }
     }
     public void Clear() { lock (_gate) { _head = 0; _count = 0; } }
+    /// <summary>Copies the next samples without consuming them (used to crossfade out of audio that is about to be dropped).</summary>
+    public int Peek(Span<float> destination)
+    {
+        lock (_gate)
+        {
+            int n = Math.Min(destination.Length, _count) & ~1;
+            for (int i = 0; i < n; i++) destination[i] = _buffer[(_head + i) % Capacity];
+            return n;
+        }
+    }
     public void Write(ReadOnlySpan<float> input)
     {
         if (input.Length % 2 != 0) throw new ArgumentException("Stereo frames only");

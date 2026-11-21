@@ -241,7 +241,7 @@ public sealed partial class MainForm : Form
     private void LogStats()
     {
         int total = DropTotal();
-        Log.Write($"audio stats: underruns A={_engine.ReaderA.Underruns} B={_engine.ReaderB.Underruns}; overruns A={_engine.ReaderA.Overruns} B={_engine.ReaderB.Overruns}; capture discontinuities A={_engine.DeckA.Discontinuities} B={_engine.DeckB.Discontinuities}; buffered A={_engine.ReaderA.BufferedMs} ms B={_engine.ReaderB.BufferedMs} ms");
+        Log.Write($"audio stats: underruns A={_engine.ReaderA.Underruns} B={_engine.ReaderB.Underruns}; overruns A={_engine.ReaderA.Overruns} B={_engine.ReaderB.Overruns}; capture discontinuities A={_engine.DeckA.Discontinuities} B={_engine.DeckB.Discontinuities}; buffered A={_engine.ReaderA.BufferedMs} ms B={_engine.ReaderB.BufferedMs} ms; drift corrections A={_engine.ReaderA.DriftCorrections} ({_engine.ReaderA.DriftPpm:+0;-0} ppm) B={_engine.ReaderB.DriftCorrections} ({_engine.ReaderB.DriftPpm:+0;-0} ppm); refused back-jumps A={_engine.ReaderA.RefusedBackJumps} B={_engine.ReaderB.RefusedBackJumps}");
         if (total > _lastDrops) SetMessage($"Audio hiccups so far: {total} (details in the log)", true);
         _lastDrops = total;
     }

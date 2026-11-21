@@ -268,4 +268,5 @@ Assert(Math.Abs(Level(new(Filter:-0.501, Trim:1), 3000) - Level(new(Filter:-0.5,
     Assert(FxCurves.SideBlend(.1, 0) == (0, 0) && FxCurves.SideBlend(-.15, .1) == (0, 0), "FX blend: deadzone returns cleanly to dry");
 }
 
+ForwardClockChecks.Run(Assert, args.Contains("--live-clock-soak"));
 Console.WriteLine($"ALL {count} TESTS PASSED");

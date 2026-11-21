@@ -54,8 +54,19 @@ public sealed class HistoryPlayer
     public void Unseed() { _seeded = false; _fCount = 0; _rCount = 0; }
 
     /// <summary>Move the playhead by <paramref name="deltaFrames"/> (negative = replay) with an equal-power crossfade.</summary>
+    /// <summary>Live app decks: the playhead may never move back (no replay of audio that was already heard).</summary>
+    public bool ForwardOnly { get; set; }
+    /// <summary>Backward jumps that were refused because the deck is forward-only.</summary>
+    public int RefusedBackJumps { get; private set; }
+
     public void Jump(double deltaFrames, int xfadeFrames = 352)
     {
+        if (ForwardOnly && deltaFrames + _jumpDelta < 0)
+        {
+            RefusedBackJumps++;
+            if (_jumpDelta <= 0) { _jumpDelta = 0; _jumpPending = false; return; }
+            deltaFrames = -_jumpDelta;      // only cancels a forward jump that has not happened yet
+        }
         _jumpDelta += deltaFrames; _jumpXf = Math.Clamp(xfadeFrames, 64, Hs); _jumpPending = true;
         if (!_keyLock) ApplyVariJump();
     }

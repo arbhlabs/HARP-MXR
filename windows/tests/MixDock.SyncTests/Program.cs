@@ -68,7 +68,9 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
     var logA = new BeatLog(); var logB = new BeatLog();
     var oa = new float[Blk * 2]; var ob = new float[Blk * 2];
     var res = new SyncResult(); long o = 0; int steps = (int)(seconds * 44100 / Blk), enableStep = (int)(enableAt * 44100 / Blk);
-    double prevRateS = 1, prevRateM = 1; float pa = 0, pb = 0; double minLead = 1e9, maxLead = 0;
+    // Live decks never replay audio to fill the delay buffer (skip-back fix): it is rebuilt by easing both decks 1.5 % slower,
+    // so the depth is checked from 25 s after SYNC was pressed.
+    double prevRateS = 1, prevRateM = 1; float pa = 0, pb = 0; double minLead = 1e9, maxLead = 0; double backA = 0, backB = 0, prevHeadA = double.NaN, prevHeadB = double.NaN;
     for (int s = 0; s < steps; s++)
     {
         A.Feed(Blk); B.Feed(Blk);
@@ -79,11 +81,13 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
         A.Reader.Read(oa); B.Reader.Read(ob);
         logA.BlockEnd(A, o, Blk, A.Reader.EffectiveRate); logB.BlockEnd(B, o, Blk, B.Reader.EffectiveRate);
         o += Blk;
+        if (!A.IsFile) { double h = A.Reader.PlayheadFrame; if (h + .01 < prevHeadA) backA++; prevHeadA = h; }
+        if (!B.IsFile) { double h = B.Reader.PlayheadFrame; if (h + .01 < prevHeadB) backB++; prevHeadB = h; }
         if (s > enableStep)
         {
             res.MaxRateStep = Math.Max(res.MaxRateStep, Math.Max(Math.Abs(ctl.CurrentRate(1) - prevRateS), Math.Abs(ctl.CurrentRate(0) - prevRateM)));
-            if (B.Reader.HistoryMode && s > enableStep + 300) { double lead = B.Reader.Player!.Lead / 44.1; minLead = Math.Min(minLead, lead); maxLead = Math.Max(maxLead, lead); }
-            if (A.Reader.HistoryMode && s > enableStep + 300) { double lead = A.Reader.Player!.Lead / 44.1; minLead = Math.Min(minLead, lead); maxLead = Math.Max(maxLead, lead); }
+            if (B.Reader.HistoryMode && s > enableStep + 2500) { double lead = B.Reader.Player!.Lead / 44.1; minLead = Math.Min(minLead, lead); maxLead = Math.Max(maxLead, lead); }
+            if (A.Reader.HistoryMode && s > enableStep + 2500) { double lead = A.Reader.Player!.Lead / 44.1; minLead = Math.Min(minLead, lead); maxLead = Math.Max(maxLead, lead); }
         }
         prevRateS = ctl.CurrentRate(1); prevRateM = ctl.CurrentRate(0);
         for (int i = 0; i < Blk; i++)
@@ -94,6 +98,7 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
         if (s == enableStep + 100) res.Role = $"{ctl.Role(0)}/{ctl.Role(1)}";
     }
     res.Underruns = A.Reader.Underruns + B.Reader.Underruns; res.Rephases = ctl.Rephases; res.MinLeadMs = minLead; res.MaxLeadMs = maxLead;
+    res.BackJumps = (int)(backA + backB); res.Relabels = ctl.GridRelabels;
     res.RateS = ctl.CurrentRate(1); res.RateM = ctl.CurrentRate(0); res.Status = ctl.Status;
     // phase error: every slave beat after the lock-in, against the nearest master beat (or half-beat for a 2:1 lock)
     var mb = logA.Beats.Select(x => x.t).ToList();
@@ -114,7 +119,7 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
     }
     res.Beats = errs.Count; res.MaxErrMs = errs.Count > 0 ? errs.Max(Math.Abs) : double.NaN; res.MeanErrMs = errs.Count > 0 ? errs.Average() : double.NaN;
     res.BarAligned = barTot == 0 ? 1 : barOk / (double)barTot;
-    if (print) Console.WriteLine($"    {bpmM} vs {bpmS}: roles {res.Role}, beats {res.Beats}, phase err max {res.MaxErrMs:F3} ms mean {res.MeanErrMs:+0.000;-0.000} ms, bars aligned {res.BarAligned:P0}, rates M {res.RateM:F5} S {res.RateS:F5}, max rate step {res.MaxRateStep * 100:F4}%/block, lead {res.MinLeadMs:F0}..{res.MaxLeadMs:F0} ms, rephases {res.Rephases}, underruns {res.Underruns}, max step A {res.MaxStepA:F3} B {res.MaxStepB:F3}; {res.Status}");
+    if (print) Console.WriteLine($"    {bpmM} vs {bpmS}: roles {res.Role}, beats {res.Beats}, phase err max {res.MaxErrMs:F3} ms mean {res.MeanErrMs:+0.000;-0.000} ms, bars aligned {res.BarAligned:P0}, rates M {res.RateM:F5} S {res.RateS:F5}, max rate step {res.MaxRateStep * 100:F4}%/block, lead {res.MinLeadMs:F0}..{res.MaxLeadMs:F0} ms, rephases {res.Rephases}, backward jumps {res.BackJumps}, grid re-labels absorbed {res.Relabels}, underruns {res.Underruns}, max step A {res.MaxStepA:F3} B {res.MaxStepB:F3}; {res.Status}");
     return res;
 }
 
@@ -123,8 +128,12 @@ foreach (var (m, sl, mult) in new[] { (125.0, 124.0, 1), (124.0, 125.0, 1), (120
 {
     var r = RunSync(m, sl, 300, mult: mult);
     string tag = $"{m} vs {sl}";
-    Check(r.MaxErrMs <= 1.0 && r.Beats > 300, $"{tag}: beats stay within 1 ms for 5 min", $"max {r.MaxErrMs:F3} ms over {r.Beats} beats");
+    // 2:1 lock: the detector keeps re-labelling which kick is the beat (two grids ~2.5 ms apart). The old engine hid that by
+    // jumping the audio (heard as skip-backs); the lock now absorbs the re-label and eases the remainder in, so allow 2 ms there.
+    double limitMs = mult == 2 ? 2.0 : 1.0;
+    Check(r.MaxErrMs <= limitMs && r.Beats > 300, $"{tag}: beats stay within {limitMs:0} ms for 5 min", $"max {r.MaxErrMs:F3} ms over {r.Beats} beats");
     Check(r.Underruns == 0, $"{tag}: no dropouts", $"underruns {r.Underruns}");
+    Check(r.BackJumps == 0, $"{tag}: live playheads never move backward (no replayed audio)", $"{r.BackJumps} backward jumps, {r.Relabels} grid re-labels absorbed");
     Check(r.MinLeadMs >= 90 && r.MaxLeadMs <= 4100, $"{tag}: delay buffer stays inside 100 ms..4 s", $"{r.MinLeadMs:F0}..{r.MaxLeadMs:F0} ms");
     Check(r.MaxRateStep < 0.001, $"{tag}: speed never steps more than 0.1% per block", $"{r.MaxRateStep * 100:F4}%");
     if (mult == 1) Check(r.BarAligned > 0.99, $"{tag}: downbeats line up (bar level)", $"{r.BarAligned:P0}");
@@ -144,5 +153,5 @@ return failed == 0 ? 0 : 1;
 
 sealed class SyncResult
 {
-    public double MaxErrMs, MeanErrMs, MaxRateStep, MinLeadMs, MaxLeadMs, RateS, RateM, MaxStepA, MaxStepB, BarAligned; public int Beats, Underruns, Rephases; public string Role = "", Status = "";
+    public double MaxErrMs, MeanErrMs, MaxRateStep, MinLeadMs, MaxLeadMs, RateS, RateM, MaxStepA, MaxStepB, BarAligned; public int Beats, Underruns, Rephases, BackJumps, Relabels; public string Role = "", Status = "";
 }

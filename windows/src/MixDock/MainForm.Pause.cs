@@ -67,6 +67,8 @@ public sealed partial class MainForm
     private void ApplyLookAhead(int d)
     {
         var src = Source(d);
-        Reader(d).LookAheadMs = src.IsFile || src.ActivePid is not > 0 ? 0 : (int)(_config.LookAhead(d) * 1000);
+        bool live = !src.IsFile && src.ActivePid is > 0;
+        Reader(d).ForwardLive = live;      // live app audio: forward-only playhead, drift correction, crossfaded overflow
+        Reader(d).LookAheadMs = live ? (int)(_config.LookAhead(d) * 1000) : 0;
     }
 }

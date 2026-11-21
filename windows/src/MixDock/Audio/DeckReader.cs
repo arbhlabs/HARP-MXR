@@ -58,13 +58,76 @@ public sealed class DeckReader
 
     public DeckReader(SampleRing ring, DeckDsp dsp) { _ring = ring; _dsp = dsp; }
 
+    // ---- live app decks: forward-only playhead + clock drift correction ----
+    private volatile bool _forwardLive;
+    private double _driftErr, _driftInteg, _driftRate = 1;
+    private bool _driftActive;
+    private int _driftEvents;
+    public const double MaxDriftCorrection = 0.005;      // +-0.5 % resample, inaudible
+    private const int DropXf = 256;                      // ~6 ms crossfade when old audio is dropped
+    private readonly float[] _dropOld = new float[DropXf * 2];
+    private int _dropLeft;
+
+    /// <summary>Live app deck: the playhead never moves backward (no replays), buffer overflow drops the oldest audio
+    /// with a crossfade, and the capture/output clock drift is absorbed by a PI controller on the buffer fill.</summary>
+    public bool ForwardLive
+    {
+        get => _forwardLive;
+        set { _forwardLive = value; if (_player != null) _player.ForwardOnly = value; if (!value) { _driftRate = 1; _driftErr = _driftInteg = 0; _driftActive = false; } }
+    }
+    /// <summary>Times the drift controller started correcting (left the dead band).</summary>
+    public int DriftCorrections => Volatile.Read(ref _driftEvents);
+    /// <summary>Current drift correction in parts per million (+ = playing faster to drain the buffer).</summary>
+    public int DriftPpm => (int)Math.Round((Volatile.Read(ref _driftRate) - 1) * 1e6);
+    /// <summary>Backward playhead moves that were refused on this live deck.</summary>
+    public int RefusedBackJumps => _player?.RefusedBackJumps ?? 0;
+
+    /// <summary>PI controller on buffer fill: returns the resample ratio that walks the delay back to its target.</summary>
+    private double DriftRate(int frames, int targetS)
+    {
+        double dt = frames / (double)Rate44;
+        double err = (_ring.Count + _srcFrames * 2 - _pos * 2 - targetS) / 2.0 / Rate44;      // seconds over target
+        _driftErr += (err - _driftErr) * Math.Min(1, dt / 0.5);                                // capture arrives in bursts: smooth it
+        _driftInteg = Math.Clamp(_driftInteg + _driftErr * dt * 0.02, -0.004, 0.004);
+        double corr = Math.Clamp(_driftErr * 0.08 + _driftInteg, -MaxDriftCorrection, MaxDriftCorrection);
+        bool active = Math.Abs(corr) > 0.0002;
+        if (active && !_driftActive) Interlocked.Increment(ref _driftEvents);
+        _driftActive = active;
+        double rate = active ? 1 + corr : 1;
+        Volatile.Write(ref _driftRate, rate);
+        return rate;
+    }
+
+    /// <summary>Drop the oldest buffered audio down to keepS samples; the audio that would have played next fades out
+    /// while the newer audio fades in (no click, the playhead only moves forward).</summary>
+    private void DropOldest(int keepS)
+    {
+        if (_ring.Count <= keepS) return;
+        int n = _ring.Peek(_dropOld);
+        _ring.Trim(keepS);
+        _srcFrames = 0; _pos = 0;
+        if (_started && n == _dropOld.Length) _dropLeft = DropXf;
+    }
+
+    private void MixDropFade(Span<float> dst)
+    {
+        int frames = Math.Min(dst.Length / 2, _dropLeft), o = (DropXf - _dropLeft) * 2;
+        for (int i = 0; i < frames; i++)
+        {
+            float t = (DropXf - _dropLeft + i + 1) / (float)DropXf;
+            dst[2 * i] = dst[2 * i] * t + _dropOld[o + 2 * i] * (1 - t);
+            dst[2 * i + 1] = dst[2 * i + 1] * t + _dropOld[o + 2 * i + 1] * (1 - t);
+        }
+        _dropLeft -= frames;
+    }
+
     // ---- history mode (continuous beat sync): the deck plays from its SampleHistory through a HistoryPlayer, so the
     // playhead is an exact absolute frame, speed changes keep pitch (WSOLA) and the phase can be re-aligned by a jump.
     private SampleHistory? _hist; private HistoryPlayer? _player; private int _seenEpoch;
     private double _histRate = 1;
     private bool _histKeyLock = true;
     /// <summary>The deck's history (set by the engine / tests).</summary>
-    public SampleHistory? History { get => _hist; set { _hist = value; _player = value == null ? null : new HistoryPlayer(value); } }
+    public SampleHistory? History { get => _hist; set { _hist = value; _player = value == null ? null : new HistoryPlayer(value) { ForwardOnly = _forwardLive }; } }
     public HistoryPlayer? Player => _player;
     /// <summary>True while the deck plays from its history.</summary>
     public bool HistoryMode => _player is { Seeded: true };
@@ -98,7 +161,31 @@ public sealed class DeckReader
         return true;
     }
     /// <summary>Leave history mode (source change): the legacy ring path takes over from an empty buffer.</summary>
-    public void LeaveHistory() { _player?.Unseed(); _started = false; _srcFrames = 0; _pos = 0; if (_hist != null) _hist.Playhead = -1; }
+    public void LeaveHistory()
+    {
+        bool carried = false;
+        if (_forwardLive && _hist != null && _player is { Seeded: true } pl)
+        {
+            // keep playing from the same frame: hand the not-yet-heard audio back to the ring (no skip, no replay)
+            lock (_hist.Gate)
+            {
+                long written = _hist.Written, from = Math.Max((long)Math.Ceiling(pl.HeadPos), _hist.ContinuousFrom);
+                _ring.Clear();
+                if (from < written && _hist.Has(from, written) && written - from < _ring.Capacity / 2)
+                {
+                    Span<float> chunk = stackalloc float[512];
+                    for (long f = from; f < written;)
+                    {
+                        int n = (int)Math.Min(256, written - f);
+                        for (int i = 0; i < n; i++) { chunk[2 * i] = _hist.L(f + i); chunk[2 * i + 1] = _hist.R(f + i); }
+                        _ring.Write(chunk[..(n * 2)]); f += n;
+                    }
+                    carried = true;
+                }
+            }
+        }
+        _player?.Unseed(); _started = carried; _srcFrames = 0; _pos = 0; if (_hist != null) _hist.Playhead = -1;
+    }
 
     private void ReadHistory(Span<float> dst)
     {
