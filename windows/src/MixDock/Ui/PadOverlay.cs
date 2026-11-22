@@ -8,8 +8,9 @@ namespace MixDock.Ui;
 /// Controller cheatsheet: a drawn Xbox pad with every input labelled by its CURRENT mapping from config
 /// (shift-layer labels while shift is held). Inputs light up live. Toggle with the PAD button or Shift+F1.
 /// </summary>
-public sealed class PadOverlay : Control
+public sealed class PadOverlay : Control, IConsoleScale
 {
+    float IConsoleScale.ScaleFactor => Math.Min(Width / 820f, Height / 440f);
     private readonly AppConfig _config;
     private PadFrame _frame;
     private bool _shift, _connected;
@@ -42,7 +43,7 @@ public sealed class PadOverlay : Control
             "FilterReset" => "FILTER reset", "EqReset" => "EQ + kills reset", "EchoSend" => "ECHO send ↑ / wash ↓",
             "EchoThrow" => "ECHO throw", "Riser" => "NOISE riser", "Cue" => "CUE (headphones)", "Sync" => "SYNC",
             "LoopDouble" => "LOOP size ×2", "LoopHalve" => "LOOP size ÷2", "BeatJumpBack" => "BEATJUMP −", "BeatJumpFwd" => "BEATJUMP +",
-            "Loop" => "LOOP on/off", "TapBpm" => "TAP BPM", "AutoMix" => "AUTO MIX on/off", "LowKill" => "LOW kill", "MidKill" => "MID kill",
+            "Loop" => "LOOP on/off", "TapBpm" => "TAP BPM", "AutoMix" => "AUTO MIX on/off", "BassCut" => "BASS −24 dB", "LowKill" => "LOW kill", "MidKill" => "MID kill",
             "HighKill" => "HIGH kill", "EchoFreeze" => "ECHO freeze", "PlayPause" => "PLAY / PAUSE (song)", "CrossfaderReset" => "X-FADER centre",
             "BrowsePrev" => "BROWSE ◀", "BrowseNext" => "BROWSE ▶", "Load" => "LOAD selected", "Mute" => "DECK mute", "MasterMute" => "KILL / RESTORE audio",
             "FocusA" => "FOCUS deck A", "FocusB" => "FOCUS deck B", "FocusToggle" => "FOCUS swap A↔B",
@@ -51,7 +52,7 @@ public sealed class PadOverlay : Control
             "FxX" => "FX PAD ↔ size / rate", "FxY" => "FX PAD ↕ reverb↔delay", "TimeBend" => "TIME BEND: ½ slow, full stop",
             "BeatRoll" => "BEAT ROLL 1/4 … 1/32", "SpinBack" => "SPIN-BACK", "Reverse" => "REVERSE (hold)",
             "FxCycle" => "FX: next effect", "FxFreeze" => "FREEZE reverb tail",
-            "QuantCycle" => "QUANTIZE: off · 1/16 · 1/8 · 1/4 · bar", "BankMode" => "BANK MODE: next", "PadGrid" => "PAD GRID window",
+            "QuantCycle" => "QUANTIZE: off · 1/16 · 1/8 · 1/4 · bar", "BankMode" => "BANK MODE: next", "BankNext" => "NEXT bank", "BankPrev" => "PREVIOUS bank", "FxBlend" => "REVERB ←  → ECHO", "PadGrid" => "PAD GRID window",
             _ when a.StartsWith("Bank:") => $"BANK {a[5..]}",
             _ when a.StartsWith("PadCapture:") => $"ALT pad {a[11..]} · capture",
             _ when a.StartsWith("Pad:") => $"PAD {a[4..]}  (bank pad)",
@@ -175,6 +176,6 @@ public sealed class PadOverlay : Control
         string chord = $"SHIFT: hold {_config.ShiftButton} or {_config.ShiftChord.Replace("LeftShoulder", "LB").Replace("RightShoulder", "RB")}   ·   " +
                        $"KILL AUDIO: hold {_config.PanicChord.Replace("Back", "View").Replace("Start", "Menu")} {_config.PanicHoldMs} ms   ·   Shift+F1 hides";
         Theme.TextAt(g, chord.Replace("hold Back", "hold View"), RI(24, 398, 772, 20), 8, Theme.Muted, false, true);
-        Theme.TextAt(g, "Rebind anything: MAP PAD in the top bar (press a button on the pad to find it)   ·   empty pads capture the last beat on first press", RI(24, 417, 772, 20), 8, Theme.Muted, false, true);
+        Theme.TextAt(g, "View + tap LB / RB: switch profile   ·   View + hold LB / RB: Shift action   ·   MAP PAD: edit mappings", RI(24, 417, 772, 20), 8, Theme.Muted, false, true);
     }
 }

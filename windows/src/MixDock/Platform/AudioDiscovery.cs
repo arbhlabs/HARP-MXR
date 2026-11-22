@@ -79,22 +79,45 @@ public static class AudioDiscovery
             catch { /* endpoint unplugged while enumerating */ }
         }
         var result = new List<AudioApp>();
-        foreach (var (exe, v) in byExe)
+        Dictionary<int, (int parent, string? cmd)>? snap = null;
+        foreach (var (exe, v) in byExe.ToList())
         {
-            int root = RootPid(exe, v.pids);
-            result.Add(new AudioApp(root, exe, v.peak, v.playing));
+            var skip = new HashSet<int>();
+            if (BrowserDetector.IsChromium(exe))
+            {
+                // Deck browsers (own --user-data-dir) are separate process trees: list them apart from the normal browser.
+                try
+                {
+                    snap ??= ProcSnapshot();
+                    foreach (var p in Process.GetProcessesByName(exe))
+                    {
+                        using (p)
+                        {
+                            if (!snap.TryGetValue(p.Id, out var info) || DeckBrowserCommand.ParseRoot(info.cmd) is not var (key, deck) || !key.Equals(exe, StringComparison.OrdinalIgnoreCase)) continue;
+                            var tree = Audio.SessionTakeover.ProcessTree(p.Id);
+                            skip.UnionWith(tree);
+                            if (!v.pids.Overlaps(tree)) continue;
+                            result.Add(new AudioApp(p.Id, DeckBrowserCommand.GroupName(exe.ToLowerInvariant(), deck), v.peak, v.playing));
+                        }
+                    }
+                }
+                catch (Exception ex) { Log.Write("DeckBrowser discovery: " + ex.Message); }
+            }
+            var rest = v.pids.Where(p => !skip.Contains(p)).ToHashSet();
+            if (rest.Count == 0) continue;
+            result.Add(new AudioApp(RootPid(exe, rest, skip), exe, v.peak, v.playing));
         }
         static int Pri(string n) { n = n.ToLowerInvariant(); return n.Contains("spotify") ? 0 : n.Contains("vivaldi") ? 1 : 2; }
         return result.OrderByDescending(a => a.Playing).ThenBy(a => Pri(a.Name)).ThenByDescending(a => a.Peak).ThenBy(a => a.Name).ToList();
     }
 
     // Root of the app's process tree: a process of this exe whose parent is not the same exe.
-    private static int RootPid(string exe, HashSet<int> sessionPids)
+    private static int RootPid(string exe, HashSet<int> sessionPids, HashSet<int> skip)
     {
         try
         {
             var procs = Process.GetProcessesByName(exe);
-            var ids = procs.Select(p => p.Id).ToHashSet();
+            var ids = procs.Select(p => p.Id).Where(id => !skip.Contains(id)).ToHashSet();
             var parents = ParentMap();
             var roots = ids.Where(id => !ids.Contains(parents.GetValueOrDefault(id))).ToList();
             foreach (var p in procs) p.Dispose();
@@ -105,6 +128,15 @@ public static class AudioDiscovery
         }
         catch { }
         return sessionPids.First();
+    }
+
+    private static Dictionary<int, (int parent, string? cmd)> ProcSnapshot()
+    {
+        var map = new Dictionary<int, (int, string?)>();
+        using var q = new System.Management.ManagementObjectSearcher("SELECT ProcessId, ParentProcessId, CommandLine FROM Win32_Process");
+        foreach (System.Management.ManagementObject o in q.Get())
+            map[Convert.ToInt32(o["ProcessId"])] = (Convert.ToInt32(o["ParentProcessId"]), o["CommandLine"] as string);
+        return map;
     }
 
     private static Dictionary<int, int> ParentMap()

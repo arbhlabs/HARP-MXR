@@ -9,5 +9,32 @@
     <Compile Include="../../src/MixDock/Audio/Biquad.cs" Link="Audio/Biquad.cs" />
     <Compile Include="../../src/MixDock/Audio/SampleRing.cs" Link="Audio/SampleRing.cs" />
     <Compile Include="../../src/MixDock/Audio/SyncController.cs" Link="Audio/SyncController.cs" />
+    <Compile Include="../../src/MixDock/Audio/AutoMix.cs" Link="Audio/AutoMix.cs" />
+    <Compile Include="../../src/MixDock/Audio/AutoMixTempoMap.cs" Link="Audio/AutoMixTempoMap.cs" />
+    <Compile Include="../../src/MixDock/Audio/TransitionPlanner.cs" Link="Audio/TransitionPlanner.cs" />
+    <Compile Include="../../src/MixDock/Audio/TransitionAutomation.cs" Link="Audio/TransitionAutomation.cs" />
+    <Compile Include="../../src/MixDock/Audio/TrackAnalysis.cs" Link="Audio/TrackAnalysis.cs" />
+    <Compile Include="../../src/MixDock/Audio/TrackAnalysis.Spectrum.cs" Link="Audio/TrackAnalysis.Spectrum.cs" />
+    <Compile Include="../../src/MixDock/Audio/TrackAnalysis.Structure.cs" Link="Audio/TrackAnalysis.Structure.cs" />
+    <Compile Include="../../src/MixDock/Audio/TrackAnalysis.Tempo.cs" Link="Audio/TrackAnalysis.Tempo.cs" />
+    <Compile Include="../../src/MixDock/Audio/KeyDetector.cs" Link="Audio/KeyDetector.cs" />
+    <Compile Include="../../src/MixDock/Audio/ChordTheory.cs" Link="Audio/ChordTheory.cs" />
+    <Compile Include="../../src/MixDock/Audio/SmartMixFixtures.cs" Link="Audio/SmartMixFixtures.cs" />
+    <Compile Include="../../src/MixDock/Audio/MasterMixer.cs" Link="Audio/MasterMixer.cs" />
+    <Compile Include="../../src/MixDock/Audio/EchoFx.cs" Link="Audio/EchoFx.cs" />
+    <Compile Include="../../src/MixDock/Audio/RiserFx.cs" Link="Audio/RiserFx.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxCurves.cs" Link="Audio/FxCurves.cs" />
+    <Compile Include="../../src/MixDock/Audio/PerformanceFx.cs" Link="Audio/PerformanceFx.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxSets.cs" Link="Audio/FxSets.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxDsp.cs" Link="Audio/FxDsp.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxUnits.cs" Link="Audio/FxUnits.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxRack.cs" Link="Audio/FxRack.cs" />
+    <Compile Include="../../src/MixDock/Audio/PerformanceSampler.cs" Link="Audio/PerformanceSampler.cs" />
+    <Compile Include="../../src/MixDock/Audio/PadEngine.cs" Link="Audio/PadEngine.cs" />
+    <Compile Include="../../src/MixDock/Audio/PadSynth.cs" Link="Audio/PadSynth.cs" />
+    <Compile Include="../../src/MixDock/Audio/AudioTiming.cs" Link="Audio/AudioTiming.cs" />
+    <Compile Include="../../src/MixDock/Audio/TrackReader.cs" Link="Audio/TrackReader.cs" />
+    <PackageReference Include="NAudio" Version="3.2.0" /><PackageReference Include="NVorbis" Version="0.10.5" /><PackageReference Include="Concentus" Version="2.2.2" /><PackageReference Include="Concentus.OggFile" Version="1.0.6" />
+
   </ItemGroup>
 </Project>

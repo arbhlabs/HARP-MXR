@@ -46,7 +46,22 @@ public sealed class DeckReader
     public bool Frozen
     {
         get => _frozen;
-        set { if (_frozen && !value) Volatile.Write(ref _fadeIn, FadeInFrames); _frozen = value; }
+        set { if (_frozen && !value) { AdoptBufferedDelay(); Volatile.Write(ref _fadeIn, FadeInFrames); } _frozen = value; }
+    }
+
+    /// <summary>Most audio a paused live deck keeps while the app plays on (time-shift), in ms.</summary>
+    public const int MaxShiftMs = 28000;
+    /// <summary>How far behind the configured delay the deck is playing after a buffered pause, in ms.</summary>
+    public int ShiftedMs(int configuredLookAheadMs) => Math.Max(0, LookAheadMs - configuredLookAheadMs);
+
+    /// <summary>Resume after a buffered pause: everything captured while paused stays queued, so the deck simply runs with a
+    /// deeper delay from the exact frame it stopped on. Nothing is dropped and nothing is replayed.</summary>
+    private void AdoptBufferedDelay()
+    {
+        if (!_forwardLive || HistoryMode) return;
+        int extra = _ring.Count / 2 + _srcFrames - Volatile.Read(ref _targetFrames);
+        int cap = _ring.Capacity / 2 - Rate44 * 2 - Volatile.Read(ref _targetFrames);
+        if (extra > Volatile.Read(ref _lookFrames)) Volatile.Write(ref _lookFrames, Math.Min(extra, cap));
     }
     private float _lastL, _lastR;
     private int _underrun, _overrun;
@@ -129,6 +144,7 @@ public sealed class DeckReader
     /// <summary>The deck's history (set by the engine / tests).</summary>
     public SampleHistory? History { get => _hist; set { _hist = value; _player = value == null ? null : new HistoryPlayer(value) { ForwardOnly = _forwardLive }; } }
     public HistoryPlayer? Player => _player;
+    internal DeckDsp Dsp => _dsp;
     /// <summary>True while the deck plays from its history.</summary>
     public bool HistoryMode => _player is { Seeded: true };
     /// <summary>Speed the history player runs at (render thread writes it through the sync controller).</summary>
@@ -158,6 +174,15 @@ public sealed class DeckReader
         _histKeyLock = keyLock; _player.KeyLock = keyLock;
         _player.Seed(pos); _seenEpoch = _hist.Epoch; HistoryRate = 1;
         _ring.Clear(); _srcFrames = 0; _pos = 0;
+        return true;
+    }
+
+    internal bool SeedAutomation(double frame, int epoch)
+    {
+        if (_hist == null || _player == null || _hist.Epoch != epoch || !_hist.Has((long)frame, _hist.Written) ||
+            _hist.Written - frame < HistoryPlayer.Hs * 3 || !EnterHistory(true)) return false;
+        _player.Seed(frame);
+        _hist.Playhead = (long)frame;
         return true;
     }
     /// <summary>Leave history mode (source change): the legacy ring path takes over from an empty buffer.</summary>

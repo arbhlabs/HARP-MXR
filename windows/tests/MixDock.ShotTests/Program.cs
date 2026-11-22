@@ -5,7 +5,7 @@ using MixDock.Platform;
 using MixDock.Settings;
 using MixDock.Ui;
 
-// Usage: MixDock.ShotTests <output folder>. Draws the real 1.3 controls with sample data and saves PNGs. Never starts MixDock.exe or audio.
+// Usage: MixDock.ShotTests <output folder>. Draws the real 1.3 controls with sample data and saves PNGs. Never starts HARP-MXR.exe or audio.
 var outDir = args.Length > 0 ? args[0] : "out/v130shots";
 Directory.CreateDirectory(outDir);
 ApplicationConfiguration.Initialize();
@@ -81,4 +81,58 @@ Size Sz(int w, int h) => new((int)(w * k), (int)(h * k));
     using var bmp = new Bitmap(dlg.Width, dlg.Height); dlg.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
     bmp.Save(Path.Combine(outDir, "midi-settings.png"), System.Drawing.Imaging.ImageFormat.Png); Console.WriteLine("saved midi-settings.png"); dlg.Close();
 }
-return 0;
+
+// ---- R5 controller HUD: three states at the sizes the console gives it (1280x720 .. 3840x2160 windows, 100-200 % DPI)
+int hudFailures = 0;
+void HudCheck(bool ok, string t) { Console.WriteLine((ok ? "PASS " : "FAIL ") + t); if (!ok) hudFailures++; }
+{
+    var space = FxCatalog.Sets[0];
+    string[] dirs = { FxCatalog.Name(space.Up), FxCatalog.Name(space.Down), FxCatalog.Name(space.Left), FxCatalog.Name(space.Right) };
+    var states = new (string Name, HudView View)[]
+    {
+        ("stick", new HudView(true, $"{dirs[0]} + {dirs[3]}", "72%", .72, "RIGHT STICK · CONTROLLER 1", "R", "DECK A", $"SET 1/{FxCatalog.Sets.Count} · {space.Name}",
+            dirs, new[] { .55, 0, 0, .45 }, .55, .62, 0)),
+        ("button", new HudView(false, "STUTTER 1/8", "HOLD", double.NaN, "FX PAD", "A", "BOTH DECKS", "FX PAD · SETS SWEEP / MOTION · BOTH DECKS", Accent: 2)),
+        ("set", new HudView(false, $"SET {FxCatalog.Sets[5].Name}", $"6/{FxCatalog.Sets.Count}", double.NaN, "CONTROLLER 1", "▶", "DECK B", $"SET 6/{FxCatalog.Sets.Count} · {FxCatalog.Sets[5].Name}", Accent: 1,
+            Detail: $"↑ {FxCatalog.Name(FxCatalog.Sets[5].Up)}  ↓ {FxCatalog.Name(FxCatalog.Sets[5].Down)}  ← {FxCatalog.Name(FxCatalog.Sets[5].Left)}  → {FxCatalog.Name(FxCatalog.Sets[5].Right)}")),
+    };
+    // console scale = min(W / 1366, H / 768) for 1280x720, 1366x768, 1920x1080, 2560x1440, 3840x2160; plus 125/150/200 % on a 1366 console
+    var scales = new (string Tag, float S)[] { ("720p", 1280 / 1366f), ("768p", 1f), ("125pct", 1.25f), ("150pct", 1.5f), ("1080p", 1920 / 1366f), ("200pct", 2f), ("1440p", 2560 / 1366f), ("4k", 3840 / 1366f) };
+    foreach (var (name, view) in states)
+        foreach (var (tag, s) in scales)
+        {
+            var hud = new FxOverlay { AnimationsEnabled = () => true };
+            var size = new Size((int)Math.Round(FxOverlay.DesignWidth * s), (int)Math.Round(FxOverlay.DesignHeight * s));
+            using var f = new Form { FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, BackColor = Theme.Background, ClientSize = size };
+            f.Controls.Add(hud); hud.Bounds = new Rectangle(Point.Empty, size); f.Show(); hud.Show(view); Application.DoEvents();
+            var over = hud.Overflows();
+            HudCheck(over.Count == 0, $"HUD {name} at {tag} ({size.Width}x{size.Height}): every text fits{(over.Count > 0 ? ": " + string.Join("; ", over) : "")}");
+            HudCheck(hud.Visible && hud.Width == size.Width, $"HUD {name} at {tag}: visible, no clipping of the box");
+            if (tag is "720p" or "1080p" or "4k")
+            {
+                using var bmp = new Bitmap(size.Width, size.Height); hud.DrawToBitmap(bmp, new Rectangle(Point.Empty, size));
+                bmp.Save(Path.Combine(outDir, $"hud-{name}-{tag}.png"), System.Drawing.Imaging.ImageFormat.Png); Console.WriteLine($"saved hud-{name}-{tag}.png");
+            }
+            f.Close();
+        }
+    // fade: 1.5 s hold, then a short fade; with Windows animations off it just disappears, no fade
+    long t = 0;
+    var anim = new FxOverlay { Clock = () => t, AnimationsEnabled = () => true };
+    using (var f = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) })
+    {
+        f.Controls.Add(anim); f.Show(); anim.Show(states[1].View);
+        t = 1400; anim.Tick(); bool held = anim.Visible && anim.Opacity() == 1;
+        t = 1700; anim.Tick(); bool fading = anim.Visible && anim.Opacity() is > 0 and < 1;
+        t = 1900; anim.Tick();
+        HudCheck(held && fading && !anim.Visible, "HUD holds 1.5 s, fades, then hides");
+        var still = new FxOverlay { Clock = () => t, AnimationsEnabled = () => false };
+        f.Controls.Add(still); t = 0; still.Show(states[0].View);
+        t = 1600; still.Tick(); bool noFade = still.Visible ? still.Opacity() == 1 : true;
+        t = 1501; still.Tick();
+        HudCheck(noFade && !still.Visible, "reduced motion: no fade animation, the HUD simply disappears after 1.5 s");
+        anim.Show(states[0].View); t = 3000; anim.Show(states[0].View);
+        HudCheck(anim.Visible, "every controller action shows the HUD again");
+        f.Close();
+    }
+}
+return hudFailures == 0 ? 0 : 1;

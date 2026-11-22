@@ -60,7 +60,7 @@ double NearestDiff(List<double> master, double t)
     for (int k = Math.Max(0, lo - 1); k <= Math.Min(master.Count - 1, lo); k++) { double d = t - master[k]; if (Math.Abs(d) < Math.Abs(best)) best = d; }
     return best;
 }
-SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 12, bool print = true, int mult = 1, Func<SimDeck, SimDeck, SyncController, int, bool>? hook = null, Action<SynthTrack>? cfgS = null, bool slaveFile = false)
+SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 12, bool print = true, int mult = 1, Func<SimDeck, SimDeck, SyncController, int, bool>? hook = null, Action<SynthTrack>? cfgS = null, bool slaveFile = false, double lockAfter = 45)
 {
     var A = new SimDeck(new SynthTrack(bpmM, 5000.3)); var B = new SimDeck(new SynthTrack(bpmS, 31234.7)) { IsFile = slaveFile };
     cfgS?.Invoke(B.Track);
@@ -105,7 +105,7 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
     if (mult == 2) { var half = new List<double>(); for (int i = 0; i + 1 < mb.Count; i++) { half.Add(mb[i]); half.Add((mb[i] + mb[i + 1]) / 2); } mb = half; }
     // mult == -2: the master (174) is read at half time, so which of its kicks carry the bar-level downbeat is ambiguous;
     // what must hold is that every slave kick lands on a master kick (any parity), checked against all master beats.
-    double lockFrom = (enableAt + 45) * 44100;
+    double lockFrom = (enableAt + lockAfter) * 44100;
     var errs = new List<double>(); var barOk = 0; var barTot = 0;
     foreach (var (n, t) in logB.Beats)
     {
@@ -121,6 +121,13 @@ SyncResult RunSync(double bpmM, double bpmS, double seconds, double enableAt = 1
     res.BarAligned = barTot == 0 ? 1 : barOk / (double)barTot;
     if (print) Console.WriteLine($"    {bpmM} vs {bpmS}: roles {res.Role}, beats {res.Beats}, phase err max {res.MaxErrMs:F3} ms mean {res.MeanErrMs:+0.000;-0.000} ms, bars aligned {res.BarAligned:P0}, rates M {res.RateM:F5} S {res.RateS:F5}, max rate step {res.MaxRateStep * 100:F4}%/block, lead {res.MinLeadMs:F0}..{res.MaxLeadMs:F0} ms, rephases {res.Rephases}, backward jumps {res.BackJumps}, grid re-labels absorbed {res.Relabels}, underruns {res.Underruns}, max step A {res.MaxStepA:F3} B {res.MaxStepB:F3}; {res.Status}");
     return res;
+}
+
+Console.WriteLine("--- late grid on a silent incoming deck: fast phase correction before the fader opens");
+{
+    var quiet = RunSync(125.0, 125.0, 40, enableAt: 2, print: false, slaveFile: true, lockAfter: 20, cfgS: x => x.Offset = 5000.3 + 0.4 * x.Period, hook: (A, B, ctl, s) => { ctl.Audible = d => d != 1; return false; });
+    Check(quiet.Beats > 8 && quiet.MaxErrMs <= 10, "silent deck: beat phase error <= 10 ms within 20 s of the lock request, before the fader opens", $"max {quiet.MaxErrMs:F2} ms over {quiet.Beats} beats");
+    Check(quiet.BackJumps == 0, "silent deck: no backward playhead jump on the live deck", $"{quiet.BackJumps}");
 }
 
 Console.WriteLine("--- continuous sync on LIVE decks (5 simulated minutes each, 4 s max delay buffer)");
@@ -147,6 +154,8 @@ Console.WriteLine("--- AutoMix hand-over (DeckSync.Glide -> SyncController.HandO
     Check(Math.Abs(r.RateS - 1.0) < 0.01, "hand-over: incoming deck eased back to native speed (within the 0.5% lead catch-up)", $"rate {r.RateS:F5}");
     Check(r.Underruns == 0 && r.MaxRateStep < 0.001, "hand-over: no dropouts or speed steps", $"underruns {r.Underruns}, step {r.MaxRateStep * 100:F4}%");
 }
+
+AutoMixChecks.Run(Check);
 
 Console.WriteLine($"=== {passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

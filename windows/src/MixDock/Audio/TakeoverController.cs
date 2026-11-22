@@ -35,7 +35,7 @@ public sealed class TakeoverController
     public async Task<string> EngageAsync(int pid, string appName)
     {
         if (MixDock.Platform.ProtectedApps.IsProtected(appName))
-            throw new InvalidOperationException($"{appName} is in ProtectedApps: MixDock leaves it untouched.");
+            throw new InvalidOperationException($"{appName} is in ProtectedApps: HARP//MXR leaves it untouched.");
         Release();
         Log.Write($"Engage {appName} pid={pid}");
         var tree = SessionTakeover.ProcessTree(pid);

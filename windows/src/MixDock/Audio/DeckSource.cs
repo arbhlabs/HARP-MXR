@@ -17,6 +17,10 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
     public int? ActivePid { get; private set; }
     private long _bytes;
     private int _rawPeakBits;
+    private long _resumeRequested, _resumeLatencyMs;
+    public double ResumeLatencySec => Interlocked.Read(ref _resumeLatencyMs) / 1000d;
+    public void MeasureResume() => Interlocked.Exchange(ref _resumeRequested, Environment.TickCount64);
+    public void CancelResumeMeasurement() => Interlocked.Exchange(ref _resumeRequested, 0);
     /// <summary>Total bytes captured since StartAsync.</summary>
     public long TotalBytes => Interlocked.Read(ref _bytes);
     /// <summary>Largest raw (pre-DSP) sample since last call; resets.</summary>
@@ -68,6 +72,13 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
         int cur;
         do { cur = Volatile.Read(ref _rawPeakBits); if (BitConverter.Int32BitsToSingle(cur) >= rp) break; }
         while (Interlocked.CompareExchange(ref _rawPeakBits, BitConverter.SingleToInt32Bits(rp), cur) != cur);
+        if (rp > .001f && (flags & AudioClientBufferFlags.Silent) == 0 && Interlocked.Read(ref _resumeRequested) != 0)
+        {
+            long requested = Interlocked.Exchange(ref _resumeRequested, 0);
+            long elapsed = Environment.TickCount64 - requested;
+            if (requested > 0 && elapsed is >= 0 and <= 3000)
+                Interlocked.Exchange(ref _resumeLatencyMs, elapsed);
+        }
         // Raw audio goes into the ring; EQ/trim run at render time (DeckReader) so knobs act instantly.
         if (_frozen) return;   // deck paused in MixDock: the delay line, waveform and BPM all hold still
         Bpm.Feed(samples);
@@ -76,7 +87,7 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
     }
 
     // ---- local file playback (same ring / DSP / BPM path as app capture) ----
-    private NAudio.Wave.AudioFileReader? _fr;
+    private ITrackReader? _fr;
     private NAudio.Wave.ISampleProvider? _chain;
     private CancellationTokenSource? _fileCts;
     private Task? _fileTask;
@@ -87,7 +98,25 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
     public string? FilePath { get; private set; }
     public TimeSpan Duration { get; private set; }
     public bool Ended { get; private set; }
-    public bool Paused { get => _paused; set => _paused = value; }
+    // Only a newly loaded, closed-deck file can be owned by Auto Mix. Every public
+    // transport command releases that claim, even two manual commands between UI ticks.
+    private volatile bool _autoMixCued;
+    public bool AutoMixCued => _autoMixCued;
+    public bool Paused
+    {
+        get => _paused;
+        set { lock (_fileGate) { _autoMixCued = false; _paused = value; } }
+    }
+    internal void ReleaseAutoMixCue() { if (_autoMixCued) lock (_fileGate) _autoMixCued = false; }
+    internal void RollAutoMixCue()
+    {
+        lock (_fileGate)
+        {
+            if (!_autoMixCued) return;
+            _autoMixCued = false;
+            if (_fr != null && !Ended) _paused = false;
+        }
+    }
     public TimeSpan Position { get { try { return _fr?.CurrentTime ?? TimeSpan.Zero; } catch { return TimeSpan.Zero; } } }
 
     private void BuildChain()
@@ -98,11 +127,18 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
         _chain = p;
     }
 
-    public async Task LoadFileAsync(string path)
+    public Task LoadFileAsync(string path) => LoadFileAsync(path, null);
+
+    internal async Task LoadFileAsync(string path, Func<bool>? cueForAutoMix)
     {
         await StopAsync();
-        var fr = new NAudio.Wave.AudioFileReader(path);
-        _fr = fr; FileName = Path.GetFileName(path); FilePath = path; Duration = fr.TotalTime; Ended = false; _paused = false;
+        var fr = TrackReaderFactory.Open(path);
+        bool cued = cueForAutoMix?.Invoke() == true;
+        lock (_fileGate)
+        {
+            _fr = fr; FileName = Path.GetFileName(path); FilePath = path; Duration = fr.TotalTime;
+            Ended = false; _autoMixCued = cued; _paused = cued;
+        }
         BuildChain();
         ActivePid = -1;
         Log.Write($"DeckSource file loaded: {path} {fr.WaveFormat} {Duration}");
@@ -135,6 +171,7 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
         if (_fr == null) return;
         lock (_fileGate)
         {
+            _autoMixCued = false;
             _fr.CurrentTime = t < TimeSpan.Zero ? TimeSpan.Zero : (t > Duration ? Duration : t);
             BuildChain(); Ended = false;
         }
@@ -145,6 +182,7 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
 
     private async Task StopFileAsync()
     {
+        ReleaseAutoMixCue();
         var cts = _fileCts; var task = _fileTask; _fileCts = null; _fileTask = null;
         cts?.Cancel();
         if (task != null) { try { await task; } catch { } }
@@ -154,6 +192,8 @@ public sealed class DeckSource : IAsyncDisposable, ISyncDeck
     }
     public async Task StopAsync()
     {
+        CancelResumeMeasurement();
+        Interlocked.Exchange(ref _resumeLatencyMs, 0);
         await StopFileAsync();
         var old = _recorder;
         _recorder = null;

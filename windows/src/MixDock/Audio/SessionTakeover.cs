@@ -14,7 +14,7 @@ public sealed class SessionTakeover
     private sealed record Undo(string EndpointId, string SessionInstanceId, int Pid, string Exe, bool WasMuted);
     private readonly List<Undo> _undo = new();
     private static readonly string JournalPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MixDock", "muted.json");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), DataFolder.Name, "muted.json");
 
     /// <summary>Endpoint where the app is actually playing (auto output device).</summary>
     public string? DeviceId { get; private set; }

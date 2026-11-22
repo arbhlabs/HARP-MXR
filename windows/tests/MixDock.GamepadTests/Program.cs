@@ -73,10 +73,10 @@ tt.Tap(5600); Assert(Math.Abs(tt.Bpm - 100) < 1e-9, "new tap pair -> 100 BPM");
 // ---------- mapper: every mapping of the "Pad performer" preset (the 1.3 layout; mapper mechanics) ----------
 var cfg = new AppConfig { ConfigVersion = AppConfig.CurrentVersion }; cfg.ApplyPreset("Pad performer");
 long t = 1000;
-List<PadEvent> Tap(PadMapper m, PadButton b, PadButton hold = 0)
+List<PadEvent> Tap(PadMapper m, PadButton b, PadButton hold = 0, int duration = 50)
 {
     var ev = new List<PadEvent>();
-    ev.AddRange(m.Update(hold | b, t += 20)); ev.AddRange(m.Update(hold | b, t += 50)); ev.AddRange(m.Update(hold, t += 20));
+    ev.AddRange(m.Update(hold | b, t += 20)); ev.AddRange(m.Update(hold | b, t += duration)); ev.AddRange(m.Update(hold, t += 20));
     return ev;
 }
 string Fired(List<PadEvent> ev) => string.Join(",", ev.Where(e => e.Kind == PadEventKind.Press).Select(e => e.Action));
@@ -94,7 +94,8 @@ var shifted = new (PadButton, string)[] {
 foreach (var (b, want) in shifted)
 {
     var m = cfg.CreatePadMapper(); m.Update(PadButton.Back, t += 20); m.Update(PadButton.Back, t += 100);
-    var ev = Tap(m, b, PadButton.Back); ev.AddRange(m.Update(0, t += 20));
+    int duration = b is PadButton.LeftShoulder or PadButton.RightShoulder ? PadMapper.TapMaxMs : 50;
+    var ev = Tap(m, b, PadButton.Back, duration); ev.AddRange(m.Update(0, t += 20));
     Assert(Fired(ev) == want && ev.Where(e => e.Kind == PadEventKind.Press).All(e => e.Shift), $"shift(View) + {b} -> {want}, View tap suppressed");
 }
 {   // LB+RB chord = shift; neither focus fires
@@ -167,6 +168,25 @@ Assert(AppConfig.FromJson("{}").GamepadAxes["LeftThumbX"] == "Focus.FxBlend", "e
     Assert(v3.GamepadAxes["RightThumbX"] == "Crossfader", "a 1.2 config is never migrated again");
     Assert(new AppConfig().FxDeadzone == 0.2 && new AppConfig().FxSmoothMs == 60, "FX pad defaults: deadzone 0.2, 60 ms smoothing");
 }
+var classic = new AppConfig { ConfigVersion = 5 };
+classic.ApplyPreset("Classic DJ");
+var upgraded = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(classic));
+Assert(upgraded.GamepadAxes["LeftThumbX"] == "Focus.FxBlend" && upgraded.GamepadButtons["Left"] == "Crossfader-" &&
+    upgraded.ShiftButtons["Left"] == "Focus.MidKill" && upgraded.ShiftButtons["Up"] == "BankNext", "stock v5 moves controls together");
+var previousLive = new AppConfig { ConfigVersion = 6 };
+previousLive.GamepadButtons["A"] = "Focus.LowKill";
+var softCut = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(previousLive));
+Assert(softCut.GamepadButtons["A"] == "Focus.LowKill", "stock v6 keeps the Default bass kill");
+softCut.ApplyPreset("Live DJ");
+Assert(softCut.GamepadButtons["A"] == "Focus.BassCut", "Live DJ has the performance bass cut");
+previousLive.GamepadButtons["Y"] = "Focus.Cue";
+var customCut = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(previousLive));
+Assert(customCut.GamepadButtons["A"] == "Focus.LowKill" && customCut.GamepadButtons["Y"] == "Focus.Cue",
+    "custom v6 mappings retain full kill and custom face action");
+classic.ShiftAxes["RightTrigger"] = "Master";
+var preserved = AppConfig.FromJson(System.Text.Json.JsonSerializer.Serialize(classic));
+Assert(preserved.GamepadAxes["LeftThumbX"] == "Crossfader" && preserved.ShiftAxes["RightTrigger"] == "Master" &&
+    preserved.GamepadButtons["Left"] == "Focus.MidKill", "a custom shift-axis preserves the entire v5 layout");
 Assert(PadMapper.Parse("LeftShoulder+RightShoulder") == (PadButton.LeftShoulder | PadButton.RightShoulder) && PadMapper.Parse("Nope") is null, "chord parsing");
 // v1.1 filter feel: deadzone 0.22, expo 0.6, 60 ms smoothing
 {
@@ -241,4 +261,6 @@ Assert(PadMapper.Parse("LeftShoulder+RightShoulder") == (PadButton.LeftShoulder 
     var two = new List<MediaSessionInfo> { new("chrome.exe", false), new("chrome.exe", true) };
     Assert(MediaSessionMatch.Pick(two, "chrome", true) == 1, "two browser sessions: pause hits the one that is playing");
 }
+ControllerProfileChecks.Run(Assert);
+StickFxChecks.Run(Assert);
 Console.WriteLine($"{n} gamepad tests passed");

@@ -13,6 +13,8 @@ public sealed class PerformanceFx
 
     private Controls _controls = new();
     public Controls State { get => Volatile.Read(ref _controls); set => Volatile.Write(ref _controls, value); }
+    /// <summary>The stick FX rack (sets of four, 29 effects). Runs first on the deck, before the classic XY-pad effects.</summary>
+    public readonly FxRack Rack = new();
 
     private const int Sr = FxCurves.SampleRate;
     // Freeverb tunings (44.1 kHz), right channel spread by 23 samples
@@ -67,14 +69,16 @@ public sealed class PerformanceFx
         Array.Clear(_combLp); Array.Clear(_fl); Array.Clear(_apZ); Array.Clear(_apFb); Array.Clear(_held);
         _amt = 0; _revSend = 0; _tailEnergy = 0; Array.Clear(_w);
         State = new Controls();
+        Rack.Kill();
     }
 
     /// <summary>In-place insert effects on <paramref name="deck"/>. The reverb is fed by the post-fader deck
     /// (<paramref name="fader"/>), so its tail rings out after the deck is cut; the tail is added to <paramref name="send"/>.</summary>
-    public void Process(Span<float> deck, Span<float> send, float fader)
+    public void Process(Span<float> deck, Span<float> send, float fader, double autoReverb = 0)
     {
+        Rack.Process(deck);
         var c = State;
-        if (!Active) return;
+        if (!Active && autoReverb <= 0) return;
         double target = double.IsFinite(c.Amount) ? Math.Clamp(c.Amount, 0, 1) : 0;
         double xT = double.IsFinite(c.X) ? Math.Clamp(c.X, 0, 1) : .5, yT = double.IsFinite(c.Y) ? Math.Clamp(c.Y, 0, 1) : .5;
         double bpm = double.IsFinite(c.Bpm) && c.Bpm > 0 ? Math.Clamp(c.Bpm, 40, 300) : 120;
@@ -108,7 +112,7 @@ public sealed class PerformanceFx
             double l = deck[i], r = deck[i + 1];
 
             // reverb send: frozen = no new input, feedback 1, no damping (the tail loops until released)
-            double inGain = c.Freeze ? 0 : _revSend * fader;
+            double inGain = c.Freeze ? 0 : Math.Max(_revSend, autoReverb) * fader;
             float rin = (float)((l + r) * .5 * inGain * .03);
             double wl = 0, wr = 0;
             for (int k = 0; k < 8; k++)

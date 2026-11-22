@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MixDock.Audio;
 using MixDock.Settings;
 
 namespace MixDock.Ui;
@@ -7,6 +8,8 @@ public sealed class LibraryView : Panel
 {
     private readonly ListView _list=new(){View=View.Details,FullRowSelect=true,HideSelection=false,MultiSelect=false,BorderStyle=BorderStyle.None,BackColor=Theme.Surface,ForeColor=Theme.Text};
     private readonly TextBox _search=new(){PlaceholderText="Search tracks",BackColor=Theme.Raised,ForeColor=Theme.Text,BorderStyle=BorderStyle.FixedSingle};
+    /// <summary>Workspace toggle (PERFORM ↔ BROWSE); MainForm decides what the expanded library covers.</summary>
+    public readonly StudioButton Browse=new(){Text="BROWSE ▲",AccessibleName="Browse: expand the library over deck A's FX and pads"};
     private readonly StudioButton _add=new(){Text="+ TRACKS"},_loadA=new(){Text="LOAD A",Accent=Theme.Cyan},_loadB=new(){Text="LOAD B",Accent=Theme.Amber};
     private readonly List<string> _paths=new();
     private readonly bool _preview;
@@ -14,6 +17,18 @@ public sealed class LibraryView : Panel
     private readonly string _path=Path.Combine(Path.GetDirectoryName(AppConfig.FilePath)!,"library.json");
     public event Action<int,string>? LoadRequested;
     public event Action? Changed;
+    public string[] TrackPaths() => _paths.ToArray();
+    public void SelectTrack(string path)
+    {
+        _search.Clear();
+        foreach (ListViewItem row in _list.Items)
+            if (string.Equals(row.Tag as string, path, StringComparison.OrdinalIgnoreCase))
+            {
+                row.Selected = row.Focused = true;
+                row.EnsureVisible();
+                break;
+            }
+    }
     public void Reload(){if(_preview)return;try{_paths.Clear();if(File.Exists(_path))_paths.AddRange(JsonSerializer.Deserialize<string[]>(File.ReadAllText(_path))??[]);RefreshRows();}catch(Exception ex)when(ex is IOException or JsonException or UnauthorizedAccessException){Log.Write("Library reload: "+ex.Message);}}
     public LibraryView(bool preview, int defaultDeck = 0)
     {
@@ -24,12 +39,12 @@ public sealed class LibraryView : Panel
         _list.DrawItem+=(_,e)=>{if(_list.View!=View.Details)e.DrawDefault=true;};
         _list.DrawSubItem+=(_,e)=>{using var bg=new SolidBrush(e.Item!.Selected?Theme.Raised:Theme.Surface);e.Graphics.FillRectangle(bg,e.Bounds);TextRenderer.DrawText(e.Graphics,e.SubItem!.Text,Font,e.Bounds,Theme.Text,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);};
         _list.Columns.Add("TRACK / FILE",330);_list.Columns.Add("BPM",55);_list.Columns.Add("KEY",55);_list.Columns.Add("TIME",65);
-        Controls.AddRange([_search,_add,_loadA,_loadB,_list]);
+        Controls.AddRange([_search,_add,Browse,_loadA,_loadB,_list]);
         if(!preview)try{if(File.Exists(_path))_paths.AddRange(JsonSerializer.Deserialize<string[]>(File.ReadAllText(_path))??[]);}catch(Exception ex)when(ex is IOException or JsonException or UnauthorizedAccessException){Log.Write("Library: "+ex.Message);}
         _search.TextChanged+=(_,_)=>RefreshRows();
         _add.Click+=(_,_)=>
         {
-            using var dlg=new OpenFileDialog{Title="Add tracks to HARP//MXR",Multiselect=true,Filter="Music|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.aiff"};
+            using var dlg=new OpenFileDialog{Title="Add tracks to HARP//MXR",Multiselect=true,Filter=TrackReaderFactory.LibraryDialogFilter};
             if(dlg.ShowDialog(this)!=DialogResult.OK)return;
             AddTracks(dlg.FileNames);
         };
@@ -67,10 +82,13 @@ public sealed class LibraryView : Panel
     {
         base.OnLayout(e);if(_list==null)return;
         float s=UiMetrics.Scale(this);int D(float v)=>(int)(v*s);
-        _add.SetBounds(D(5),D(3),D(84),D(25));_search.SetBounds(D(95),D(4),Math.Max(40,Width-D(280)),D(23));
-        _loadA.SetBounds(Width-D(177),D(3),D(82),D(25));_loadB.SetBounds(Width-D(90),D(3),D(82),D(25));
-        _list.SetBounds(D(5),D(32),Width-D(10),Math.Max(10,Height-D(36)));
+        _add.SetBounds(D(4),D(3),D(84),D(26));_search.SetBounds(D(94),D(4),Math.Max(40,Width-D(370)),D(24));
+        Browse.SetBounds(Width-D(268),D(3),D(88),D(26));
+        _loadA.SetBounds(Width-D(176),D(3),D(84),D(26));_loadB.SetBounds(Width-D(88),D(3),D(84),D(26));
+        _list.SetBounds(D(4),D(33),Width-D(8),Math.Max(10,Height-D(37)));
         foreach(Control c in Controls)c.Font=Font;
-        _list.Columns[0].Width=Math.Max(50,_list.Width-D(175));for(int i=1;i<4;i++)_list.Columns[i].Width=D(55);
+        // columns fill the client width exactly, so no unpainted header strip is left at the right edge
+        int meta=D(62);for(int i=1;i<4;i++)_list.Columns[i].Width=meta;
+        _list.Columns[0].Width=Math.Max(50,_list.ClientSize.Width-3*meta);
     }
 }

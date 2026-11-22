@@ -24,7 +24,7 @@ public static class DeckSync
         if (e.DeckA.ActivePid is null || e.DeckB.ActivePid is null) return "SYNC needs an app or song on both decks.";
         c.Enable(deck);
         var gs = (deck == 0 ? e.DeckA : e.DeckB).Bpm.Grid; var gm = (deck == 0 ? e.DeckB : e.DeckA).Bpm.Grid;
-        if (gs == null || gm == null) return "SYNC armed: it locks as soon as MixDock hears the beat on both decks.";
+        if (gs == null || gm == null) return "SYNC armed: it locks as soon as HARP//MXR hears the beat on both decks.";
         return $"SYNC: Deck {Name(deck)} ({gs.Bpm:F2} BPM) follows Deck {Name(1 - deck)} ({gm.Bpm:F2} BPM).";
     }
 

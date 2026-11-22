@@ -1,6 +1,6 @@
 namespace MixDock.Platform;
 
-public enum PadEventKind { Press, Release, Repeat, Panic }
+public enum PadEventKind { Press, Release, Repeat, Panic, PreviousProfile, NextProfile }
 
 /// <summary>One dispatched controller action. Shift = the action came from the shift layer.</summary>
 public readonly record struct PadEvent(PadEventKind Kind, string Action, PadButton Button, bool Shift);
@@ -19,6 +19,9 @@ public sealed class PadMapper
     public const int DebounceMs = 40, TapMaxMs = 350, RepeatDelayMs = 350, RepeatEveryMs = 60;
     private readonly Dictionary<PadButton, string> _normal = new(), _shift = new();
     private readonly PadButton _shiftButton, _shiftChord, _panicChord, _modifiers;
+    private readonly bool _profileShortcuts;
+    private PadButton _profileShoulder;
+    private long _profileAt;
     public int PanicHoldMs { get; }
 
     private PadButton _prev, _consumed;
@@ -31,17 +34,19 @@ public sealed class PadMapper
     public bool PanicArmed => _panicSince >= 0 && !_panicFired;
 
     public PadMapper(IReadOnlyDictionary<string, string> buttons, IReadOnlyDictionary<string, string> shiftButtons,
-        string? shiftButton = "Back", string? shiftChord = "LeftShoulder+RightShoulder", string? panicChord = "Back+Start", int panicHoldMs = 500)
+        string? shiftButton = "Back", string? shiftChord = "LeftShoulder+RightShoulder", string? panicChord = "Back+Start",
+        int panicHoldMs = 500, bool profileShortcuts = false)
     {
         foreach (var (k, v) in buttons) if (Parse(k) is PadButton b && b != 0 && !string.IsNullOrWhiteSpace(v)) _normal[b] = v;
         foreach (var (k, v) in shiftButtons) if (Parse(k) is PadButton b && b != 0 && !string.IsNullOrWhiteSpace(v)) _shift[b] = v;
-        _shiftButton = Parse(shiftButton) ?? 0;
+        _shiftButton = ParseAny(shiftButton);
         _shiftChord = Parse(shiftChord) ?? 0;
         if (System.Numerics.BitOperations.PopCount((uint)_shiftChord) < 2) _shiftChord = 0;
         _panicChord = Parse(panicChord) ?? 0;
         if (System.Numerics.BitOperations.PopCount((uint)_panicChord) < 2) _panicChord = 0;
         PanicHoldMs = Math.Clamp(panicHoldMs, 100, 5000);
         _modifiers = _shiftButton | _shiftChord | _panicChord;
+        _profileShortcuts = profileShortcuts;
     }
 
     /// <summary>"A", "LeftShoulder+RightShoulder" -> flags. null when any part is unknown.</summary>
@@ -57,12 +62,21 @@ public sealed class PadMapper
         return r;
     }
 
+    /// <summary>"Back,Extra1" -> either button is the shift button (a pad with a paddle keeps View as shift too).</summary>
+    public static PadButton ParseAny(string? s)
+    {
+        PadButton r = 0;
+        foreach (var part in (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (Parse(part) is PadButton b) r |= b;
+        return r;
+    }
+
     public bool IsModifier(PadButton b) => (_modifiers & b) != 0;
     public string? ActionFor(PadButton b, bool shift)
         => shift ? (_shift.TryGetValue(b, out var s) ? s : null) : (_normal.TryGetValue(b, out var n) ? n : null);
 
     private bool IsShift(PadButton held, PadButton exclude)
-        => (_shiftButton != 0 && (_shiftButton & exclude) == 0 && (held & _shiftButton) == _shiftButton)
+        => (_shiftButton != 0 && (held & ~exclude & _shiftButton) != 0)
         || (_shiftChord != 0 && (_shiftChord & exclude) == 0 && (held & _shiftChord) == _shiftChord);
 
     public static bool IsRepeatable(string action) => action.EndsWith('+') || action.EndsWith('-');
@@ -71,16 +85,18 @@ public sealed class PadMapper
     public void Reset(PadButton current)
     {
         _prev = current; _consumed = current; _active.Clear(); _pressedAt.Clear(); _panicSince = -1; _panicFired = false;
+        _profileShoulder = 0;
     }
 
     public List<PadEvent> Update(PadButton buttons, long nowMs)
     {
         var events = new List<PadEvent>();
         var pressed = buttons & ~_prev; var released = _prev & ~buttons;
+        var reserved = _profileShortcuts ? ProfileChord(buttons, pressed, nowMs, events) : 0;
 
         foreach (PadButton b in Enum.GetValues<PadButton>())
         {
-            if ((pressed & b) == 0) continue;
+            if ((pressed & b) == 0 || (reserved & b) != 0) continue;
             if (_lastPress.TryGetValue(b, out long lp) && nowMs - lp < DebounceMs) { _consumed |= b; continue; }
             _lastPress[b] = nowMs; _pressedAt[b] = nowMs; _consumed &= ~b;
             // other held modifiers become modifiers now (their tap is cancelled); forming a chord consumes all its members
@@ -110,7 +126,8 @@ public sealed class PadMapper
         foreach (PadButton b in Enum.GetValues<PadButton>())
         {
             if ((released & b) == 0) continue;
-            if (IsModifier(b))
+            if (_active.Remove(b, out var a)) events.Add(new(PadEventKind.Release, a.Action, b, a.Shift));
+            else if (IsModifier(b))
             {
                 bool tap = (_consumed & b) == 0 && _pressedAt.TryGetValue(b, out long at) && nowMs - at <= TapMaxMs;
                 _consumed &= ~b;
@@ -121,7 +138,6 @@ public sealed class PadMapper
                 events.Add(new(PadEventKind.Press, action, b, shift));
                 events.Add(new(PadEventKind.Release, action, b, shift));
             }
-            else if (_active.Remove(b, out var a)) events.Add(new(PadEventKind.Release, a.Action, b, a.Shift));
             _consumed &= ~b;
         }
 
@@ -137,5 +153,49 @@ public sealed class PadMapper
         }
         _prev = buttons;
         return events;
+    }
+
+    private PadButton ProfileChord(PadButton buttons, PadButton pressed, long now, List<PadEvent> events)
+    {
+        const PadButton View = PadButton.Back;
+        if (_profileShoulder == 0)
+        {
+            var shoulder = buttons & ~View;
+            if ((buttons & View) == 0 || (pressed & shoulder) == 0 ||
+                shoulder is not (PadButton.LeftShoulder or PadButton.RightShoulder)) return 0;
+            _profileShoulder = shoulder;
+            _profileAt = now;
+            _consumed |= buttons;
+            return buttons;
+        }
+
+        var pending = _profileShoulder;
+        var chord = View | pending;
+        if ((buttons & ~chord) != 0)
+        {
+            _profileShoulder = 0;
+            return 0;
+        }
+        if (buttons == chord && now - _profileAt < TapMaxMs) return chord;
+        _profileShoulder = 0;
+        if (now - _profileAt < TapMaxMs)
+        {
+            events.Add(new(pending == PadButton.LeftShoulder ? PadEventKind.PreviousProfile : PadEventKind.NextProfile, "", pending, false));
+        }
+        else
+        {
+            bool shift = IsShift(chord, pending);
+            if (ActionFor(pending, shift) is string action)
+            {
+                events.Add(new(PadEventKind.Press, action, pending, shift));
+                if ((buttons & pending) == 0) events.Add(new(PadEventKind.Release, action, pending, shift));
+                else
+                {
+                    _active[pending] = (action, shift);
+                    _pressedAt[pending] = _lastFire[pending] = now;
+                }
+            }
+        }
+        return chord;
     }
 }

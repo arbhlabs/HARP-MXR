@@ -33,6 +33,32 @@ internal static class ForwardClockChecks
         });
         check(backwards == 0 && repeats == 0, $"Live SYNC correction under burst capture and output stalls has no backward jump or sampled replay ({backwards} jumps, {repeats} replays)");
 
+        // Buffered pause: the reader is frozen while capture goes on. On resume the deck continues from the exact frame it
+        // stopped on (nothing dropped, nothing replayed), now simply further behind live; "go live" then skips forward.
+        {
+            var h2 = new SampleHistory(); var ring2 = new SampleRing(Rate * 34);
+            var rd = new DeckReader(ring2, new DeckDsp { Parameters = new DeckParameters(Trim: 1) }) { History = h2, ForwardLive = true };
+            var blk = new float[Block * 2]; var o2 = new float[Block * 2]; long seq = 0;
+            void Feed() { for (int i = 0; i < Block; i++) blk[2 * i] = blk[2 * i + 1] = (float)(.12 + seq++ * 0.000000015); lock (h2.Gate) { h2.Write(blk); ring2.Write(blk); } }
+            for (int s = 0; s < 400; s++) { Feed(); rd.Read(o2); }
+            float before = o2[^2]; double headBefore = rd.PlayheadFrame;
+            rd.Frozen = true;
+            for (int s = 0; s < 2000; s++) { Feed(); rd.Read(o2); }                 // 20 s paused, app keeps playing
+            check(Math.Abs(o2[^2]) < 1e-6f && rd.BufferedMs > 19900, $"Paused live deck is silent and keeps recording ({rd.BufferedMs} ms saved)");
+            rd.Frozen = false;
+            Feed(); rd.Read(o2);
+            double headAfter = rd.PlayheadFrame;
+            float expected = before + Block * 0.000000015f;                          // the very next block of audio
+            check(Math.Abs(o2[^2] - expected) < 2e-6f && headAfter >= headBefore && headAfter - headBefore < Block * 3,
+                $"Resume continues from the paused frame (sample {o2[^2]:F7}, expected {expected:F7}; playhead moved {headAfter - headBefore:F0} frames)");
+            int over = rd.Overruns; float prev = o2[^2]; bool mono = true;
+            for (int s = 0; s < 600; s++) { Feed(); rd.Read(o2); if (o2[^2] < prev - 1e-7f) mono = false; prev = o2[^2]; }
+            check(mono && rd.Overruns == over && rd.BufferedMs > 19500, $"Time-shifted playback keeps its delay, with no drop and no replay ({rd.BufferedMs} ms behind)");
+            double headShift = rd.PlayheadFrame;
+            rd.LookAheadMs = 0;                                                       // go live
+            for (int s = 0; s < 50; s++) { Feed(); rd.Read(o2); }
+            check(rd.PlayheadFrame > headShift + Rate * 15 && rd.BufferedMs < 400, $"Go live skips forward to the present ({rd.BufferedMs} ms buffered)");
+        }
         if (soak)
         {
             history = new SampleHistory();

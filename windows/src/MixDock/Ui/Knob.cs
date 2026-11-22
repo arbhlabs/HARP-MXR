@@ -40,16 +40,24 @@ public sealed class Knob : Control
             g.DrawLine(p,cx+(float)Math.Cos(angle)*10*s,cy+(float)Math.Sin(angle)*10*s,cx+(float)Math.Cos(angle)*16*s,cy+(float)Math.Sin(angle)*16*s);
         string value=Bipolar?$"{(Value-50)*.24:+0.0;-0.0;0.0} dB":$"{Value}%";
         if(Caption=="FILTER")value=Math.Abs(_precise-50)<0.05?"OFF":$"{(_precise<50?"LOW-PASS":"HIGH-PASS")} {Math.Abs(_precise-50)*2:0.0}%";
-        Theme.TextAt(g,value,new(0,(int)(76*s),Width,(int)(19*s)),Caption=="FILTER"?8:9,Accent,true,true);
+        Theme.TextAt(g,value,new(0,(int)(76*s),Width,(int)(19*s)),Caption=="FILTER"?8:9,Accent,true,true,numeric:true);
     }
     private void PaintCompact(Graphics g)
     {
-        g.SmoothingMode=SmoothingMode.AntiAlias;float s=UiMetrics.Scale(this),cx=Width/2f,cy=17*s,r=12*s;
-        using var body=new SolidBrush(Theme.Raised);g.FillEllipse(body,cx-r,cy-r,2*r,2*r);
-        using var edge=new Pen(_hover||Focused?Accent:Theme.Edge,1.5f*s);g.DrawEllipse(edge,cx-r,cy-r,2*r,2*r);
-        double a=(135+Precise*2.7)*Math.PI/180;using var mark=new Pen(Accent,2*s);
-        g.DrawLine(mark,cx+(float)Math.Cos(a)*5*s,cy+(float)Math.Sin(a)*5*s,cx+(float)Math.Cos(a)*10*s,cy+(float)Math.Sin(a)*10*s);
-        Theme.TextAt(g,Caption=="FILTER"?"LP / HP":Caption,new Rectangle(0,(int)(32*s),Width,(int)(15*s)),7,Theme.Muted,false,true);
+        g.SmoothingMode=SmoothingMode.AntiAlias;float s=UiMetrics.Scale(this),cx=Width/2f,r=Math.Min(15*s,(Height-18*s)/2f),cy=r+3*s;
+        if(r<4)return;
+        // value arc around the cap: bipolar knobs fill from 12 o'clock, so cut and boost read without numbers
+        var ring=new RectangleF(cx-r-2*s,cy-r-2*s,2*r+4*s,2*r+4*s);
+        using(var track=new Pen(Theme.Edge,2.5f*s))Theme.Arc(g,track,ring,135,270);
+        float delta=Bipolar?(float)(_precise-50)*2.7f:(float)_precise*2.7f;
+        using(var arc=new Pen(Accent,2.5f*s))if(Math.Abs(delta)>.01)Theme.Arc(g,arc,ring,Bipolar?Math.Min(270,270+delta):135,Math.Abs(delta));
+        var cap=new RectangleF(cx-r+3*s,cy-r+3*s,2*r-6*s,2*r-6*s);
+        using var body=new SolidBrush(Theme.Raised);Theme.Ellipse(g,body,cap);
+        using var edge=new Pen(_hover||Focused?Accent:Theme.Edge,1.2f*s);Theme.Ellipse(g,edge,cap);
+        double a=(135+Precise*2.7)*Math.PI/180;using var mark=new Pen(Theme.Text,2*s){StartCap=LineCap.Round,EndCap=LineCap.Round};
+        g.DrawLine(mark,cx+(float)Math.Cos(a)*(r-12*s)*.5f,cy+(float)Math.Sin(a)*(r-12*s)*.5f,cx+(float)Math.Cos(a)*(r-5*s),cy+(float)Math.Sin(a)*(r-5*s));
+        string caption=Caption=="FILTER"?(Math.Abs(_precise-50)<0.05?"FILTER":_precise<50?$"LP {Math.Abs(_precise-50)*2:0}%":$"HP {Math.Abs(_precise-50)*2:0}%"):Caption;
+        Theme.TextAt(g,caption,new Rectangle(0,(int)(cy+r+2*s),Width,(int)(15*s)),8,Caption=="FILTER"&&Math.Abs(_precise-50)>=0.05?Accent:Theme.Muted,true,true);
     }
     protected override void OnMouseEnter(EventArgs e){_hover=true;Invalidate();base.OnMouseEnter(e);}
     protected override void OnMouseLeave(EventArgs e){_hover=false;Invalidate();base.OnMouseLeave(e);}

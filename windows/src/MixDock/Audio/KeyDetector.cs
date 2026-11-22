@@ -83,16 +83,27 @@ public sealed class KeyDetector
             for (int k = 0; k < 12; k++) _chroma[k] = _chroma[k] * 0.97 + c[k] / max;
             _blocks++;
             if (_blocks < 4) return;
-            double best = double.MinValue, second = double.MinValue; MusicalKey bestKey = default;
-            for (int root = 0; root < 12; root++)
-                foreach (bool minor in new[] { false, true })
-                {
-                    double r = Correlate(_chroma, minor ? MinorProfile : MajorProfile, root);
-                    if (r > best) { second = best; best = r; bestKey = new MusicalKey(root, minor); }
-                    else if (r > second) second = r;
-                }
-            _key = bestKey; _conf = Math.Clamp(best - second + best * 0.5, 0, 1);
+            (_key, _conf) = EstimateChroma(_chroma);
         }
+    }
+
+    internal static (MusicalKey? Key, double Confidence) EstimateChroma(double[] chroma)
+    {
+        double best = double.MinValue, second = double.MinValue;
+        MusicalKey bestKey = default;
+        for (int root = 0; root < 12; root++)
+        for (int mode = 0; mode < 2; mode++)
+        {
+            double r = Correlate(chroma, mode == 1 ? MinorProfile : MajorProfile, root);
+            if (r > best)
+            {
+                second = best;
+                best = r;
+                bestKey = new MusicalKey(root, mode == 1);
+            }
+            else if (r > second) second = r;
+        }
+        return best <= 0 ? (null, 0) : (bestKey, Math.Clamp(best - second + best * .5, 0, 1));
     }
 
     public static double Correlate(double[] chroma, double[] profile, int root)

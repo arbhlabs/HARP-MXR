@@ -15,6 +15,7 @@ public static class ActionCatalog
     public static readonly IReadOnlyList<ActionDef> Buttons = new ActionDef[]
     {
         // mixing moves that work on live apps (Spotify, browser) and on song files
+        new("BassCut", "Bass cut (−24 dB)", ActionScope.Deck),
         new("LowKill", "Bass kill (on/off)", ActionScope.Deck),
         new("MidKill", "Mid kill (on/off)", ActionScope.Deck),
         new("HighKill", "High kill (on/off)", ActionScope.Deck),
@@ -76,6 +77,8 @@ public static class ActionCatalog
         new("FxCycle", "Right-stick FX: next effect", ActionScope.Global),
         new("FxFreeze", "Freeze reverb tail (on/off)", ActionScope.Global),
         new("AutoMix", "Auto mix (on/off)", ActionScope.Global),
+        new("AutoMix.Now", "Auto mix: mix now", ActionScope.Global),
+        new("AutoMix.Skip", "Auto mix: next style", ActionScope.Global),
         new("PauseAll", "Pause / resume all decks", ActionScope.Global),
         new("BankNext", "Next pad bank", ActionScope.Global), new("BankPrev", "Previous pad bank", ActionScope.Global),
         new("Bank:1", "Pad bank 1", ActionScope.Global), new("Bank:2", "Pad bank 2", ActionScope.Global),
@@ -84,6 +87,22 @@ public static class ActionCatalog
         new("QuantCycle", "Pad quantize: next", ActionScope.Global),
         new("PadGrid", "Pad grid window", ActionScope.Global),
         new("PadOverlay", "Controller cheat sheet", ActionScope.Global),
+        // stick FX sets (R3): sets of four effects on a stick, two more on the left stick
+        new("SetNext", "FX set: next", ActionScope.Global),
+        new("SetPrev", "FX set: previous", ActionScope.Global),
+        new("FxClear", "FX: let go of every stick effect", ActionScope.Global),
+        new("FxTargetNext", "FX pad target: next (focus · A · B · both)", ActionScope.Global),
+        new("FxTargetPrev", "FX pad target: previous", ActionScope.Global),
+        new("SwapControllers", "Swap controller 1 and 2 (mixer ↔ FX pad)", ActionScope.Global),
+        new("Stutter:1/4", "Stutter 1/4 (hold)", ActionScope.Deck, true),
+        new("Stutter:1/8", "Stutter 1/8 (hold)", ActionScope.Deck, true),
+        new("Stutter:1/16", "Stutter 1/16 (hold)", ActionScope.Deck, true),
+        new("Stutter:1/32", "Stutter 1/32 (hold)", ActionScope.Deck, true),
+        new("Transformer:1/16", "Transformer gate 1/16 (hold)", ActionScope.Deck, true),
+        new("Transformer:1/32", "Transformer gate 1/32 (hold)", ActionScope.Deck, true),
+        new("Cut", "Cut: silence while held", ActionScope.Deck, true),
+        new("GrainFreeze", "Freeze: hold the sound in the air (hold)", ActionScope.Deck, true),
+        new("SubDrop", "Sub drop hit", ActionScope.Deck),
     };
 
     public static readonly IReadOnlyList<ActionDef> Axes = new ActionDef[]
@@ -104,6 +123,11 @@ public static class ActionCatalog
         new("Master", "Master volume", ActionScope.Global),
         new("Low", "Bass EQ", ActionScope.Deck), new("Mid", "Mid EQ", ActionScope.Deck), new("High", "High EQ", ActionScope.Deck),
         new("Trim", "Trim (gain)", ActionScope.Deck),
+        new("SetPadX", "FX set pad ↔ (4 effects of the set: direction picks, distance = amount)", ActionScope.Deck),
+        new("SetPadY", "FX set pad ↕ (4 effects of the set)", ActionScope.Deck),
+        new("SetPad2X", "Second FX set pad ↔ (the next set)", ActionScope.Deck),
+        new("SetPad2Y", "Second FX set pad ↕ (the next set)", ActionScope.Deck),
+        new("SetSide", "FX set ← → (the set's two left-stick effects)", ActionScope.Deck),
     };
 
     public static IReadOnlyList<ActionDef> For(bool axis) => axis ? Axes : Buttons;

@@ -5,10 +5,11 @@ namespace MixDock.Ui;
 
 internal static class Theme
 {
-    public static readonly Color Background = Color.FromArgb(16,18,20), Surface = Color.FromArgb(25,28,30),
-        Raised = Color.FromArgb(34,37,40), Edge = Color.FromArgb(48,53,57), Text = Color.FromArgb(236,240,248),
-        Muted = Color.FromArgb(153,165,185), Cyan = Color.FromArgb(70,216,227), Amber = Color.FromArgb(245,166,35),
-        Red = Color.FromArgb(248,104,116);
+    // Near-black OLED base; surfaces step up in small, even increments so hierarchy comes from contrast, not gradients.
+    public static readonly Color Background = Color.FromArgb(11,13,15), Surface = Color.FromArgb(21,24,27),
+        Raised = Color.FromArgb(32,36,40), Edge = Color.FromArgb(48,54,60), Text = Color.FromArgb(236,240,248),
+        Muted = Color.FromArgb(150,162,180), Cyan = Color.FromArgb(70,216,227), Amber = Color.FromArgb(245,166,35),
+        Red = Color.FromArgb(248,104,116), Green = Color.FromArgb(88,206,132), Idle = Color.FromArgb(19,22,25);
     public static readonly Color Pink = Amber; // compatibility alias
     /// <summary>GDI+ throws OutOfMemoryException for zero/negative/NaN rects, pens and sweeps; these helpers skip such draws.</summary>
     public static bool Ok(RectangleF r) => float.IsFinite(r.X) && float.IsFinite(r.Y) && float.IsFinite(r.Width) && float.IsFinite(r.Height) && r.Width >= 1 && r.Height >= 1;
@@ -33,16 +34,26 @@ internal static class Theme
         finally { _paintScale=before; }
     }
     private static string? _lastGuard;
-    public static Font Font(float size, bool bold = false) => new("Segoe UI Variable", size, bold ? FontStyle.Bold : FontStyle.Regular);
+    // Shared type scale in logical points. Console fonts use explicit pixels to avoid double DPI scaling.
+    public const string TextFamily = "Segoe UI", NumericFamily = "Consolas";
+    private static float TypeSize(float size) => size switch
+    {
+        <= 7 => 7, <= 8 => 8, <= 9 => 9, <= 11 => 11, <= 14 => 14, _ => size
+    };
+    public static Font Font(float size, bool bold = false) =>
+        new(TextFamily, TypeSize(size), bold ? FontStyle.Bold : FontStyle.Regular);
+    public static Font PixelFont(float points, float scale, bool bold = false, bool numeric = false) =>
+        new(numeric ? NumericFamily : TextFamily, Math.Max(7, TypeSize(points) * 96 / 72 * scale),
+            bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel);
     public static GraphicsPath Round(RectangleF r, float radius)
     {
         var p = new GraphicsPath(); float d = Math.Min(radius*2, Math.Min(r.Width,r.Height));
         p.AddArc(r.X,r.Y,d,d,180,90); p.AddArc(r.Right-d,r.Y,d,d,270,90);
         p.AddArc(r.Right-d,r.Bottom-d,d,d,0,90); p.AddArc(r.X,r.Bottom-d,d,d,90,90); p.CloseFigure(); return p;
     }
-    public static void TextAt(Graphics g,string text,Rectangle r,float size,Color color,bool bold=false,bool center=false)
+    public static void TextAt(Graphics g,string text,Rectangle r,float size,Color color,bool bold=false,bool center=false,bool numeric=false)
     {
-        using var f = new Font("Segoe UI",size*96/72*(_paintScale>0?_paintScale:1),bold?FontStyle.Bold:FontStyle.Regular,GraphicsUnit.Pixel);
+        using var f = PixelFont(size,_paintScale>0?_paintScale:1,bold,numeric);
         TextRenderer.DrawText(g,text,f,r,color,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPadding|
             (center ? TextFormatFlags.HorizontalCenter : TextFormatFlags.Left));
     }
@@ -64,7 +75,13 @@ public sealed class StudioButton : Button
 {
     private bool _hover;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public Color Accent {get;set;}=Theme.Muted;
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public bool Active {get;set;}
+    private bool _active;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Active
+    {
+        get => _active;
+        set { if (_active == value) return; _active = value; Invalidate(); }
+    }
     public StudioButton()
     {
         SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);
@@ -73,6 +90,15 @@ public sealed class StudioButton : Button
     }
     protected override void OnMouseEnter(EventArgs e) {_hover=true;Invalidate();base.OnMouseEnter(e);}
     protected override void OnMouseLeave(EventArgs e) {_hover=false;Invalidate();base.OnMouseLeave(e);}
+    /// <summary>Optional status lamp along the bottom edge (e.g. pad has a sample or a hot cue).</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color? Lamp
+    {
+        get => _lamp;
+        set { if (_lamp == value) return; _lamp = value; Invalidate(); }
+    }
+    private Color? _lamp;
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     protected override void OnPaint(PaintEventArgs e) => Theme.Guard(() => PaintCore(e), "Theme.2", this);
     private void PaintCore(PaintEventArgs e)
     {
@@ -81,13 +107,22 @@ public sealed class StudioButton : Button
         // anti-aliased edge pixels of earlier frames ghost through the translucent fill (garbled labels, stray marks)
         g.Clear(Parent?.BackColor ?? Theme.Background);
         if(Width<4||Height<4)return;
+        float s=UiMetrics.Scale(this);
         g.SmoothingMode=SmoothingMode.AntiAlias;
-        using var p=Theme.Round(new RectangleF(1,1,Width-3,Height-3),2*UiMetrics.Scale(this));
-        using var b=new SolidBrush(Active?Color.FromArgb(65,Accent):_hover?Theme.Raised:Color.FromArgb(26,30,40));
-        using var pen=new Pen(Focused||_hover||Active?Accent:Theme.Edge,Focused?2:1);
+        using var p=Theme.Round(new RectangleF(1,1,Width-3,Height-3),2.5f*s);
+        // Three unambiguous states: idle (dark, hairline), hover (raised, accent edge), active (solid accent, dark text).
+        Color fill=Active?Accent:_hover&&Enabled?Theme.Raised:Theme.Idle;
+        Color edge=Active?Accent:Focused||_hover?Accent:Theme.Edge;
+        using var b=new SolidBrush(fill);
+        using var pen=new Pen(edge,Focused?2:1);
         g.FillPath(b,p);g.DrawPath(pen,p);
-        TextRenderer.DrawText(g,Text,Font,ClientRectangle,Active||_hover?Theme.Text:ForeColor,
+        if(_lamp is Color lamp&&!Active)
+        {
+            using var lb=new SolidBrush(lamp);
+            g.FillRectangle(lb,4*s,Height-4*s,Width-8*s,Math.Max(2,2*s));
+        }
+        Color text=!Enabled?Theme.Edge:Active?Theme.Background:_hover?Theme.Text:ForeColor;
+        TextRenderer.DrawText(g,Text,Font,ClientRectangle,text,
             TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
     }
 }
-

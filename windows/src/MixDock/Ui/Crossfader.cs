@@ -11,6 +11,14 @@ public class Fader : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]public int ResetValue {get;set;}=85;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int Value {get=>_value;set{int v=Math.Clamp(value,0,100);if(v==_value)return;_value=v;Invalidate();ValueChanged?.Invoke(this,EventArgs.Empty);}}
+    // Reflect an engine-driven fade without sending the rounded display value back to the mixer.
+    internal void DisplayValue(int value)
+    {
+        int next = Math.Clamp(value,0,100);
+        if (next == _value) return;
+        _value = next;
+        Invalidate();
+    }
     public event EventHandler? ValueChanged;
     public Fader(){DoubleBuffered=true;ResizeRedraw=true;TabStop=true;Cursor=Cursors.Hand;BackColor=Theme.Surface;AccessibleRole=AccessibleRole.Slider;}
     protected override void OnPaint(PaintEventArgs e) => Theme.Guard(() => PaintCore(e), "Crossfader.1", this);

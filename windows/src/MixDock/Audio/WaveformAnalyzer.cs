@@ -1,7 +1,18 @@
 namespace MixDock.Audio;
 
-/// <summary>One 10 ms slice of a waveform: peak level per frequency band (0..1).</summary>
-public readonly record struct WaveColumn(float Low, float Mid, float High, float Peak);
+/// <summary>One 10 ms slice of a waveform: peak and RMS level per frequency band (0..1).</summary>
+public readonly record struct WaveColumn(float Low, float Mid, float High, float Peak,
+    float Rms = 0, float LowRms = 0, float MidRms = 0, float HighRms = 0)
+{
+    // Display attacks in any band, including a hi-hat rising above sustained bass.
+    // Relative and absolute floors keep stationary tones and the noise floor quiet.
+    public bool StartsTransient(WaveColumn previous)
+    {
+        static bool Rises(float now, float prior) => now - prior > Math.Max(.035f, prior * .5f);
+        return Rises(Low, previous.Low) || Rises(Mid, previous.Mid) ||
+               Rises(High, previous.High) || Rises(Peak, previous.Peak);
+    }
+}
 
 /// <summary>
 /// Splits audio into low (&lt;200 Hz), mid (200 Hz..2.5 kHz) and high (&gt;2.5 kHz) bands with cheap one-pole
@@ -17,6 +28,7 @@ public sealed class WaveformAnalyzer
     private long _count;                              // columns published
     private int _n;
     private float _lp1, _lp2, _lpHi, _hp1, _hp2, _mLow, _mMid, _mHigh, _mPeak;
+    private double _sumLow2, _sumMid2, _sumHigh2, _sum2;
 
     public WaveformAnalyzer(int historySeconds = 180) { _ring = new WaveColumn[historySeconds * ColumnsPerSecond]; }
 
@@ -24,7 +36,13 @@ public sealed class WaveformAnalyzer
     /// <summary>Total columns written so far (the newest is Count-1).</summary>
     public long Count => Volatile.Read(ref _count);
 
-    public void Reset() { Volatile.Write(ref _count, 0); _n = 0; _lp1 = _lp2 = _lpHi = _hp1 = _hp2 = _mLow = _mMid = _mHigh = _mPeak = 0; }
+    public void Reset()
+    {
+        Volatile.Write(ref _count, 0);
+        _n = 0;
+        _lp1 = _lp2 = _lpHi = _hp1 = _hp2 = _mLow = _mMid = _mHigh = _mPeak = 0;
+        _sumLow2 = _sumMid2 = _sumHigh2 = _sum2 = 0;
+    }
 
     /// <summary>Returns false if the column is not written yet or has been overwritten.</summary>
     public bool TryGet(long index, out WaveColumn c)
@@ -61,11 +79,18 @@ public sealed class WaveformAnalyzer
             float low = _lp2, high = x - _lpHi;
             float al = Math.Abs(low), am = Math.Abs(mid), ah = Math.Abs(high), ax = Math.Abs(x);
             if (al > _mLow) _mLow = al; if (am > _mMid) _mMid = am; if (ah > _mHigh) _mHigh = ah; if (ax > _mPeak) _mPeak = ax;
+            _sumLow2 += (double)low * low;
+            _sumMid2 += (double)mid * mid;
+            _sumHigh2 += (double)high * high;
+            _sum2 += (double)x * x;
             if (++_n < FramesPerColumn) continue;
             long idx = _count;
-            _ring[idx % _ring.Length] = new WaveColumn(Math.Min(1, _mLow), Math.Min(1, _mMid), Math.Min(1, _mHigh), Math.Min(1, _mPeak));
+            static float Rms(double sum) => (float)Math.Min(1, Math.Sqrt(sum / FramesPerColumn));
+            _ring[idx % _ring.Length] = new WaveColumn(Math.Min(1, _mLow), Math.Min(1, _mMid), Math.Min(1, _mHigh),
+                Math.Min(1, _mPeak), Rms(_sum2), Rms(_sumLow2), Rms(_sumMid2), Rms(_sumHigh2));
             Volatile.Write(ref _count, idx + 1);
             _n = 0; _mLow = _mMid = _mHigh = _mPeak = 0;
+            _sumLow2 = _sumMid2 = _sumHigh2 = _sum2 = 0;
         }
     }
 

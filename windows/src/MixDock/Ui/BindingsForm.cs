@@ -5,10 +5,10 @@ namespace MixDock.Ui;
 
 /// <summary>
 /// Controller mapping editor: every Xbox input with its normal and Shift action, picked from the action catalog.
-/// Press a button or move a stick/trigger on the controller and its row lights up and takes focus (learn).
+/// Find input identifies buttons and dominant stick/trigger motion; the D-pad navigates the editor.
 /// Edits a copy; OK writes the four layers + Shift button back into the config. Nothing runs while it is open.
 /// </summary>
-public sealed class BindingsForm : Form
+public sealed partial class BindingsForm : Form
 {
     private sealed record Input(string Key, string Name, bool Axis);
     private static readonly Input[] Inputs =
@@ -20,7 +20,11 @@ public sealed class BindingsForm : Form
         new("LeftShoulder", "LB", false), new("RightShoulder", "RB", false),
         new("Up", "D-pad ↑", false), new("Down", "D-pad ↓", false), new("Left", "D-pad ←", false), new("Right", "D-pad →", false),
         new("LeftThumb", "L3 (press left stick)", false), new("RightThumb", "R3 (press right stick)", false),
-        new("Back", "View ⧉ (tap; hold = Shift)", false), new("Start", "Menu ≡ (tap)", false),
+        new("Back", "View", false), new("Start", "Menu", false),
+        // inputs XInput does not report (back paddles, extra top buttons), read through Windows.Gaming.Input; press to bind
+        new("Extra1", "Extra 1 (paddle / extra)", false), new("Extra2", "Extra 2 (paddle / extra)", false),
+        new("Extra3", "Extra 3 (paddle / extra)", false), new("Extra4", "Extra 4 (paddle / extra)", false),
+        new("Extra5", "Extra 5", false), new("Extra6", "Extra 6", false), new("Extra7", "Extra 7", false), new("Extra8", "Extra 8", false),
     };
 
     /// <summary>One combo entry: a catalog action, nothing, or a raw string the catalog does not know (kept, flagged).</summary>
@@ -33,100 +37,33 @@ public sealed class BindingsForm : Form
     {
         public ComboBox Action = null!, Deck = null!;
     }
-    private sealed class Row
-    {
-        public Input Input = null!; public Label Label = null!; public Cell Normal = null!, Shift = null!; public long LitUntil;
-    }
-
-    private readonly AppConfig _config;
-    private readonly List<Row> _rows = new();
-    private readonly ComboBox _shiftButton = new(), _preset = new();
-    private readonly Label _learn = new();
-    private readonly TableLayoutPanel _table = new();
-    private readonly System.Windows.Forms.Timer _poll = new() { Interval = 25 };
-    private PadButton _prevButtons; private readonly double[] _prevAxis = new double[6];
-    private bool _primed;
-
-    public BindingsForm(AppConfig config)
-    {
-        _config = config;
-        Text = "HARP//MXR · Controller mappings";
-        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new Size(1000, 720); MinimumSize = new Size(860, 520);
-        StartPosition = FormStartPosition.CenterParent; BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(9.5f);
-        KeyPreview = true;
-
-        var top = new Panel { Dock = DockStyle.Top, Height = 92, Padding = new Padding(16, 10, 16, 6), BackColor = Theme.Background };
-        var title = new Label { Text = "CONTROLLER MAPPINGS", Font = Theme.Font(13, true), AutoSize = true, Location = new Point(16, 8), ForeColor = Theme.Text };
-        _learn.Text = "Press any button or move a stick on the controller: its row lights up so you can pick what it does.";
-        _learn.AutoSize = false; _learn.SetBounds(16, 38, 620, 22); _learn.ForeColor = Theme.Cyan;
-        var hint = new Label { Text = "\"Focused deck\" follows LB / RB.  Hold View (or LB+RB) for the Shift column.  Hold View+Menu ½ s = kill all audio.", AutoSize = false, ForeColor = Theme.Muted };
-        hint.SetBounds(16, 62, 760, 22);
-        StyleCombo(_preset); _preset.Items.AddRange(AppConfig.Presets); _preset.SelectedIndex = 0; _preset.SetBounds(650, 34, 160, 26);
-        var load = new StudioButton { Text = "LOAD PRESET", Accent = Theme.Amber }; load.SetBounds(818, 33, 160, 28);
-        load.Click += (_, _) => LoadPreset((string)_preset.SelectedItem!);
-        top.Controls.AddRange([title, _learn, hint, _preset, load]);
-        top.Resize += (_, _) => { int r = top.ClientSize.Width - 16; load.Left = r - load.Width; _preset.Left = load.Left - 8 - _preset.Width; };
-
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 56, BackColor = Theme.Background };
-        var shiftLabel = new Label { Text = "Shift button (hold):", AutoSize = true, Location = new Point(16, 18), ForeColor = Theme.Muted };
-        StyleCombo(_shiftButton); _shiftButton.SetBounds(150, 14, 150, 26);
-        _shiftButton.Items.Add("(none: LB+RB only)");
-        foreach (var i in Inputs) if (!i.Axis) _shiftButton.Items.Add(i.Key);
-        int si = string.IsNullOrWhiteSpace(_config.ShiftButton) ? 0 : _shiftButton.Items.IndexOf(_config.ShiftButton);
-        _shiftButton.SelectedIndex = Math.Max(0, si);
-        var ok = new StudioButton { Text = "SAVE + USE NOW", Accent = Theme.Cyan, DialogResult = DialogResult.OK };
-        var cancel = new StudioButton { Text = "CANCEL", DialogResult = DialogResult.Cancel };
-        ok.Size = new Size(170, 34); cancel.Size = new Size(110, 34);
-        bottom.Controls.AddRange([shiftLabel, _shiftButton, ok, cancel]);
-        bottom.Resize += (_, _) => { int r = bottom.ClientSize.Width - 16; ok.Location = new Point(r - ok.Width, 11); cancel.Location = new Point(ok.Left - 8 - cancel.Width, 11); };
-        AcceptButton = ok; CancelButton = cancel;
-        ok.Click += (_, _) => Commit();
-
-        _table.Dock = DockStyle.Fill; _table.AutoScroll = true; _table.BackColor = Theme.Surface; _table.Padding = new Padding(12, 6, 24, 6);
-        _table.ColumnCount = 5;
-        _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
-        _table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
-        _table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
-        void Head(string t, int col) => _table.Controls.Add(new Label { Text = t, ForeColor = Theme.Muted, Font = Theme.Font(8.5f, true), AutoSize = true, Margin = new Padding(3, 8, 3, 4) }, col, 0);
-        _table.RowCount = Inputs.Length + 1;
-        Head("INPUT", 0); Head("ACTION", 1); Head("DECK", 2); Head("WITH SHIFT HELD", 3); Head("DECK", 4);
-        int rowIndex = 1;
-        foreach (var input in Inputs)
-        {
-            var row = new Row { Input = input };
-            row.Label = new Label { Text = input.Name, AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Theme.Text, Padding = new Padding(6, 0, 0, 0), Margin = new Padding(0, 2, 6, 2) };
-            row.Normal = MakeCell(input, shift: false);
-            row.Shift = MakeCell(input, shift: true);
-            _table.Controls.Add(row.Label, 0, rowIndex);
-            _table.Controls.Add(row.Normal.Action, 1, rowIndex); _table.Controls.Add(row.Normal.Deck, 2, rowIndex);
-            _table.Controls.Add(row.Shift.Action, 3, rowIndex); _table.Controls.Add(row.Shift.Deck, 4, rowIndex);
-            _table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-            _rows.Add(row); rowIndex++;
-        }
-        Controls.Add(_table); Controls.Add(bottom); Controls.Add(top);
-        LoadFrom(_config.GamepadButtons, _config.ShiftButtons, _config.GamepadAxes, _config.ShiftAxes);
-        _poll.Tick += (_, _) => PollLearn();
-        Shown += (_, _) => _poll.Start();
-        FormClosed += (_, _) => { _poll.Stop(); _poll.Dispose(); };
-    }
-
     private static void StyleCombo(ComboBox c)
     {
         c.DropDownStyle = ComboBoxStyle.DropDownList; c.FlatStyle = FlatStyle.Flat;
         c.BackColor = Theme.Raised; c.ForeColor = Theme.Text; c.MaxDropDownItems = 24;
+        c.DrawMode = DrawMode.OwnerDrawFixed;
+        c.DrawItem += (_, e) =>
+        {
+            bool selected = e.State.HasFlag(DrawItemState.Selected) && !e.State.HasFlag(DrawItemState.ComboBoxEdit);
+            using var fill = new SolidBrush(selected ? Theme.Cyan : Theme.Raised);
+            e.Graphics.FillRectangle(fill, e.Bounds);
+            if (e.Index < 0) return;
+            string label = c.GetItemText(c.Items[e.Index]) ?? "";
+            var text = Rectangle.Inflate(e.Bounds, -3, 0);
+            TextRenderer.DrawText(e.Graphics, label, e.Font, text, selected ? Theme.Background : c.Enabled ? Theme.Text : Theme.Muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        };
     }
 
     private Cell MakeCell(Input input, bool shift)
     {
         var cell = new Cell { Action = new ComboBox(), Deck = new ComboBox() };
         StyleCombo(cell.Action); StyleCombo(cell.Deck);
-        cell.Action.Dock = DockStyle.Fill; cell.Deck.Dock = DockStyle.Fill;
+
         cell.Action.Margin = new Padding(3, 3, 3, 3); cell.Deck.Margin = new Padding(3, 3, 12, 3);
         cell.Action.Items.Add(new Choice { Text = input.Axis && shift ? "(same as without Shift)" : "— nothing —" });
-        foreach (var d in ActionCatalog.For(input.Axis)) cell.Action.Items.Add(new Choice { Def = d, Text = d.Label });
+        foreach (var d in ActionCatalog.For(input.Axis).Where(MatchesSearch))
+            cell.Action.Items.Add(new Choice { Def = d, Text = d.Label });
         cell.Deck.Items.AddRange(["Focused deck", "Deck A", "Deck B"]);
         cell.Deck.SelectedIndex = 0;
         cell.Action.SelectedIndexChanged += (_, _) => cell.Deck.Enabled = (cell.Action.SelectedItem as Choice)?.Def?.Scope == ActionScope.Deck;
@@ -142,6 +79,12 @@ public sealed class BindingsForm : Form
         {
             foreach (var item in cell.Action.Items)
                 if (item is Choice c && c.Def == def) { cell.Action.SelectedItem = c; break; }
+            if (cell.Action.SelectedIndex < 0)
+            {
+                var current = new Choice { Def = def, Text = def.Label };
+                cell.Action.Items.Insert(1, current);
+                cell.Action.SelectedItem = current;
+            }
             cell.Deck.SelectedIndex = deck;
         }
         else if (!string.IsNullOrWhiteSpace(action))
@@ -160,85 +103,277 @@ public sealed class BindingsForm : Form
         return c.Def is null ? null : ActionCatalog.Compose(c.Def, Math.Max(0, cell.Deck.SelectedIndex));
     }
 
-    private void LoadFrom(IReadOnlyDictionary<string, string> buttons, IReadOnlyDictionary<string, string> shiftButtons,
-        IReadOnlyDictionary<string, string> axes, IReadOnlyDictionary<string, string> shiftAxes)
+
+    private readonly AppConfig _config;
+    private readonly AppConfig _draftConfig = new();
+    private readonly ComboBox _shiftButton = new(), _preset = new();
+    private readonly ListBox _inputs = new();
+    private readonly Label _selection = new(), _status = new(), _hints = new();
+    private readonly System.Windows.Forms.Timer _poll = new() { Interval = 25 };
+    private readonly List<(Control Control, Rectangle Design, float Size, bool Bold)> _positions = new();
+    private readonly Dictionary<(float Size, bool Bold), Font> _fonts = new();
+    private readonly Dictionary<(string Key, bool Shift), string?> _draft = new();
+    private Cell? _normal, _shift;
+    private int _displayed = -1;
+    private ComboBox? _field, _editing;
+    private int _originalIndex;
+    private bool _finding;
+    private PadFrame? _previous;
+    private float _scale;
+    private readonly StudioButton _save = new() { Text = "Save and use", Accent = Theme.Cyan, DialogResult = DialogResult.OK };
+    private readonly StudioButton _cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel };
+
+    private readonly PadRole _role;
+
+    /// <param name="role">Which controller this editor maps: Find input listens to that pad only.</param>
+    public BindingsForm(AppConfig config, PadRole role = PadRole.Mixer)
     {
-        foreach (var r in _rows)
+        _config = config; _role = role;
+        _draftConfig.CopyProfilesFrom(config);
+        Text = role == PadRole.FxPad ? "HARP//MXR · Controller 2 (FX pad) mappings" : "HARP//MXR · Controller mappings";
+        AutoScaleMode = AutoScaleMode.None;
+        ClientSize = new Size(1000, 640);
+        MinimumSize = new Size(620, 395);
+        StartPosition = FormStartPosition.CenterParent;
+        BackColor = Theme.Background;
+        ForeColor = Theme.Text;
+        DoubleBuffered = true;
+
+        AddLabel(role == PadRole.FxPad ? "Controller 2 · FX pad" : "Controller mappings", 20, 12, 410, 46, 24, true).ForeColor = role == PadRole.FxPad ? Theme.Amber : Theme.Text;
+        AddLabel("PROFILE", 477, 18, 78, 34, 12, true);
+        StyleCombo(_preset);
+        _preset.AccessibleName = "Mapping profile";
+        _preset.Enter += (_, _) => SetField(_preset, false);
+        Place(_preset, 555, 21, 215, 34);
+        var load = new StudioButton { Text = "Load profile", Accent = Theme.Amber };
+        load.Click += (_, _) => LoadProfile();
+        Place(load, 786, 14, 192, 42);
+
+        AddLabel("CONTROLLER INPUT", 20, 83, 240, 24, 13, true);
+        _inputs.AccessibleName = "Controller inputs";
+        _inputs.BackColor = Theme.Surface;
+        _inputs.ForeColor = Theme.Text;
+        _inputs.BorderStyle = BorderStyle.None;
+        _inputs.DrawMode = DrawMode.OwnerDrawFixed;
+        _inputs.IntegralHeight = false;
+        _inputs.DrawItem += DrawInput;
+        foreach (var input in Inputs) _inputs.Items.Add(input.Name);
+        _inputs.SelectedIndexChanged += (_, _) => { if (_displayed != _inputs.SelectedIndex) ShowInput(); };
+        Place(_inputs, 20, 119, 234, 379);
+
+        Place(_selection, 280, 76, 692, 44, 22, true);
+        AddLabel("Find action", 280, 116, 112, 27, 13);
+        _search.AccessibleName = "Search controller actions by name";
+        _search.BackColor = Theme.Surface;
+        _search.ForeColor = Theme.Text;
+        _search.TextChanged += (_, _) => ShowInput();
+        Place(_search, 395, 116, 363, 27);
+        AddLabel("NORMAL", 280, 144, 230, 24, 13, true).ForeColor = Theme.Cyan;
+        AddLabel("WITH SHIFT HELD", 280, 245, 230, 24, 13, true).ForeColor = Theme.Amber;
+        AddLabel("Shift button", 280, 355, 188, 32);
+        StyleCombo(_shiftButton);
+        _shiftButton.AccessibleName = "Shift button";
+        _shiftButton.Items.Add("(chord only)");
+        foreach (var input in Inputs.Where(i => !i.Axis)) _shiftButton.Items.Add(input.Key);
+        _shiftButton.Enter += (_, _) => SetField(_shiftButton, false);
+        Place(_shiftButton, 475, 355, 242, 34);
+        _modifierLine = AddLabel("", 280, 388, 699, 29, 14);
+        var find = new StudioButton { Text = "Find input", Accent = Theme.Cyan };
+        find.Click += (_, _) => BeginFind();
+        Place(find, 280, 421, 124, 41);
+        Place(_status, 420, 412, 557, 63);
+        _status.ForeColor = Theme.Muted;
+        InstallProfileCommands();
+
+        _cancel.Click += (_, _) => DialogResult = DialogResult.Cancel;
+        _save.Click += (_, _) => Commit();
+        AcceptButton = _save; CancelButton = _cancel;
+        Place(_cancel, 689, 516, 128, 42);
+        Place(_save, 829, 516, 149, 42, 16, true);
+        Place(_hints, 20, 577, 958, 52, 15, true);
+        _hints.BackColor = Theme.Surface;
+        _hints.ForeColor = Theme.Text;
+        _hints.TextAlign = ContentAlignment.MiddleCenter;
+
+        RefreshProfiles();
+        ReadDraft(_draftConfig);
+        _inputs.SelectedIndex = 0;
+        _status.Text = "Choose an input to edit both layers.";
+        _poll.Tick += (_, _) =>
         {
-            var normal = r.Input.Axis ? axes : buttons; var shift = r.Input.Axis ? shiftAxes : shiftButtons;
-            ShowCell(r.Normal, normal.GetValueOrDefault(r.Input.Key), r.Input.Axis);
-            ShowCell(r.Shift, shift.GetValueOrDefault(r.Input.Key), r.Input.Axis);
+            if (Gamepad.ReadFrame(_role, out var frame, out _)) ProcessFrame(frame);
+            else _previous = null;
+        };
+        Shown += (_, _) => { _normal!.Action.Focus(); if (!_verification) _poll.Start(); };
+        Resize += (_, _) => LayoutEditor();
+        LayoutEditor();
+    }
+
+    private void Place(Control c, int x, int y, int w, int h, float size = 16, bool bold = false)
+    {
+        Controls.Add(c);
+        _positions.Add((c, new Rectangle(x, y, w, h), size, bold));
+    }
+
+    private Label AddLabel(string text, int x, int y, int w, int h, float size = 16, bool bold = false)
+    {
+        var label = new Label { Text = text, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Theme.Muted };
+        Place(label, x, y, w, h, size, bold);
+        return label;
+    }
+
+    private void LayoutEditor()
+    {
+        float scale = Math.Max(.2f, Math.Min(ClientSize.Width / 1000f, ClientSize.Height / 640f));
+        var oldFonts = scale != _scale ? _fonts.Values.ToArray() : [];
+        if (oldFonts.Length > 0) _fonts.Clear();
+        _scale = scale;
+        int x = (int)((ClientSize.Width - 1000 * scale) / 2), y = (int)((ClientSize.Height - 640 * scale) / 2);
+        foreach (var (c, r, size, bold) in _positions)
+        {
+            var key = (size, bold);
+            if (!_fonts.TryGetValue(key, out var font))
+                _fonts[key] = font = new Font("Segoe UI", Math.Max(8, size * scale), bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel);
+            if (c.Font != font) c.Font = font;
+            if (c is ComboBox combo) combo.ItemHeight = font.Height + Math.Max(2, (int)(3 * scale));
+            c.SetBounds(x + (int)(r.X * scale), y + (int)(r.Y * scale), (int)(r.Width * scale), (int)(r.Height * scale));
+        }
+        int rowHeight = Math.Max(15, (int)(32 * scale));
+        if (_inputs.ItemHeight != rowHeight) _inputs.ItemHeight = rowHeight;
+        foreach (var font in oldFonts) font.Dispose();
+        Invalidate();
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        if (!_verification && Owner != null)
+        {
+            var area = Screen.FromControl(Owner).WorkingArea;
+            float fit = Math.Min(DeviceDpi / 96f, Math.Min((area.Width - 32) / 1000f, (area.Height - 64) / 640f));
+            ClientSize = new Size((int)(1000 * fit), (int)(640 * fit));
+            CenterToParent();
+        }
+        base.OnLoad(e);
+    }
+
+    private void DrawInput(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0) return;
+        bool selected = e.Index == _inputs.SelectedIndex;
+        using var fill = new SolidBrush(selected ? Theme.Raised : Theme.Surface);
+        e.Graphics.FillRectangle(fill, e.Bounds);
+        if (selected)
+        {
+            using var rail = new SolidBrush(Theme.Cyan);
+            e.Graphics.FillRectangle(rail, e.Bounds.X, e.Bounds.Y, Math.Max(2, (int)(3 * _scale)), e.Bounds.Height);
+        }
+        var text = Rectangle.Inflate(e.Bounds, -(int)(11 * _scale), 0);
+        TextRenderer.DrawText(e.Graphics, Inputs[e.Index].Name, _inputs.Font, text, selected ? Theme.Text : Theme.Muted,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (_field is null || !_field.Enabled) return;
+        using var pen = new Pen(_editing != null ? Theme.Amber : Theme.Cyan, Math.Max(2, 2 * _scale));
+        e.Graphics.DrawRectangle(pen, Rectangle.Inflate(_field.Bounds, 3, 3));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _poll.Dispose();
+        base.Dispose(disposing);
+        if (disposing) foreach (var font in _fonts.Values) font.Dispose();
+    }
+
+    private void ReadDraft(AppConfig source)
+    {
+        foreach (var input in Inputs)
+        {
+            _draft[(input.Key, false)] = (input.Axis ? source.GamepadAxes : source.GamepadButtons).GetValueOrDefault(input.Key);
+            _draft[(input.Key, true)] = (input.Axis ? source.ShiftAxes : source.ShiftButtons).GetValueOrDefault(input.Key);
+        }
+        int shiftIndex = _shiftButton.Items.IndexOf(source.ShiftButton);
+        if (shiftIndex < 0 && !string.IsNullOrWhiteSpace(source.ShiftButton)) shiftIndex = _shiftButton.Items.Add(source.ShiftButton);   // e.g. "Back,Extra1": either button
+        _shiftButton.SelectedIndex = Math.Max(0, shiftIndex);
+        _modifierLine.Text = $"Shift chord  {Chord(source.ShiftChord)}     ·     Kill audio  {Chord(source.PanicChord)}  ({source.PanicHoldMs} ms)";
+    }
+
+    private void StoreRow()
+    {
+        if (_displayed < 0 || _normal == null || _shift == null) return;
+        _draft[(Inputs[_displayed].Key, false)] = ReadCell(_normal);
+        _draft[(Inputs[_displayed].Key, true)] = ReadCell(_shift);
+    }
+
+    private void ShowInput(bool saveCurrent = true)
+    {
+        if (_inputs.SelectedIndex < 0) return;
+        if (saveCurrent) StoreRow();
+        int field = Math.Max(0, Array.IndexOf(Fields(), _field));
+        foreach (var old in new[] { _normal, _shift }.OfType<Cell>())
+        foreach (var c in new[] { old.Action, old.Deck })
+        {
+            _positions.RemoveAll(p => p.Control == c);
+            c.Dispose();
+        }
+        _editing = null;
+        _editChoices.Visible = false;
+        var input = Inputs[_displayed = _inputs.SelectedIndex];
+        _selection.Text = input.Name;
+        _selection.TextAlign = ContentAlignment.MiddleLeft;
+        _normal = BuildLayer(false, 178);
+        _shift = BuildLayer(true, 279);
+        LayoutEditor();
+        SetField(Fields()[field].Enabled ? Fields()[field] : _normal.Action, false);
+
+        Cell BuildLayer(bool shifted, int y)
+        {
+            var cell = MakeCell(input, shifted);
+            Place(cell.Action, 280, y, 477, 38);
+            Place(cell.Deck, 773, y, 205, 38);
+            ShowCell(cell, _draft[(input.Key, shifted)], input.Axis);
+            cell.Action.SelectedIndexChanged += (_, _) => WarnConflict();
+            cell.Deck.SelectedIndexChanged += (_, _) => WarnConflict();
+            cell.Action.Enter += (_, _) => SetField(cell.Action, false);
+            cell.Deck.Enter += (_, _) => SetField(cell.Deck, false);
+            return cell;
         }
     }
 
-    private void LoadPreset(string name)
+    private ComboBox[] Fields() => _normal == null || _shift == null ? [] : [_normal.Action, _normal.Deck, _shift.Action, _shift.Deck];
+
+    private void LoadProfile()
     {
-        var tmp = new AppConfig(); tmp.ApplyPreset(name);
-        LoadFrom(tmp.GamepadButtons, tmp.ShiftButtons, tmp.GamepadAxes, tmp.ShiftAxes);
-        _shiftButton.SelectedIndex = Math.Max(0, _shiftButton.Items.IndexOf(tmp.ShiftButton));
-        _learn.Text = $"Loaded the {name} preset. SAVE + USE NOW applies it.";
+        if (_preset.SelectedItem is not string name) return;
+        WriteDraft();
+        _draftConfig.SwitchProfile(name);
+        ReadDraft(_draftConfig);
+        RefreshProfiles();
+        ShowInput(false);
+        _status.ForeColor = Theme.Muted;
+        _status.Text = $"{name} selected. Save to apply.";
     }
 
     private void Commit()
     {
-        Dictionary<string, string> b = new(), sb = new(), a = new(), sa = new();
-        foreach (var r in _rows)
-        {
-            string? n = ReadCell(r.Normal), s = ReadCell(r.Shift);
-            if (n != null) (r.Input.Axis ? a : b)[r.Input.Key] = n;
-            if (s != null) (r.Input.Axis ? sa : sb)[r.Input.Key] = s;
-        }
-        _config.GamepadButtons = b; _config.ShiftButtons = sb; _config.GamepadAxes = a; _config.ShiftAxes = sa;
-        _config.ShiftButton = _shiftButton.SelectedIndex <= 0 ? "" : (string)_shiftButton.SelectedItem!;
-        // the panic chord must stay reachable: View+Menu unless the user chose another shift button
-        if (string.IsNullOrWhiteSpace(_config.PanicChord)) _config.PanicChord = "Back+Start";
+        WriteDraft();
+        _config.CopyProfilesFrom(_draftConfig);
     }
 
-    // ---------------------------------------------------------------- learn: the controller picks the row
-    private void PollLearn()
+    private void WriteDraft()
     {
-        if (!Gamepad.Read(out var state)) { _learn.Text = "No controller connected. Plug it in (or turn it on) to use press-to-find."; _primed = false; return; }
-        var frame = Gamepad.Process(state.Gamepad);
-        var buttons = state.Gamepad.Buttons;
-        double[] axis = { frame.LY, frame.LX, frame.RX, frame.RY, frame.LT, frame.RT };
-        if (!_primed) { _prevButtons = buttons; Array.Copy(axis, _prevAxis, 6); _primed = true; _learn.Text = "Controller ready: press a button or move a stick to find it."; }
-        var pressed = buttons & ~_prevButtons;
-        var shiftBtn = PadMapper.Parse(_shiftButton.SelectedIndex <= 0 ? null : (string)_shiftButton.SelectedItem!) ?? 0;
-        bool shiftHeld = (shiftBtn != 0 && (buttons & shiftBtn) == shiftBtn) || (buttons & (PadButton.LeftShoulder | PadButton.RightShoulder)) == (PadButton.LeftShoulder | PadButton.RightShoulder);
-        foreach (PadButton b in Enum.GetValues<PadButton>())
+        StoreRow();
+        foreach (var input in Inputs)
+        foreach (bool shifted in new[] { false, true })
         {
-            if ((pressed & b) == 0) continue;
-            bool asShift = shiftHeld && b != shiftBtn && b is not (PadButton.LeftShoulder or PadButton.RightShoulder);
-            Light(b.ToString(), asShift);
+            var bindings = input.Axis ? (shifted ? _draftConfig.ShiftAxes : _draftConfig.GamepadAxes)
+                                      : (shifted ? _draftConfig.ShiftButtons : _draftConfig.GamepadButtons);
+            if (_draft[(input.Key, shifted)] is string action) bindings[input.Key] = action;
+            else bindings.Remove(input.Key);
         }
-        for (int i = 0; i < 6; i++)
-        {
-            double v = Math.Abs(axis[i]);
-            if (v > 0.6 && Math.Abs(_prevAxis[i]) <= 0.6)
-            {
-                // sticks: only the dominant direction counts, so a diagonal push finds the intended row
-                int other = i switch { 0 => 1, 1 => 0, 2 => 3, 3 => 2, _ => -1 };
-                if (other < 0 || v >= Math.Abs(axis[other])) Light(Inputs[i].Key, shiftHeld);
-            }
-        }
-        _prevButtons = buttons; Array.Copy(axis, _prevAxis, 6);
-        long now = Environment.TickCount64;
-        foreach (var r in _rows)
-        {
-            bool lit = now < r.LitUntil;
-            var back = lit ? Color.FromArgb(40, 92, 98) : Theme.Surface;
-            if (r.Label.BackColor != back) r.Label.BackColor = back;
-        }
-    }
-
-    private void Light(string key, bool shift)
-    {
-        var row = _rows.FirstOrDefault(r => r.Input.Key == key);
-        if (row is null) return;
-        row.LitUntil = Environment.TickCount64 + 1500;
-        var cell = shift ? row.Shift : row.Normal;
-        _table.ScrollControlIntoView(row.Label);
-        if (!cell.Action.DroppedDown) cell.Action.Focus();
-        _learn.Text = $"{row.Input.Name}{(shift ? " + SHIFT" : "")}: now {ActionCatalog.Label(ReadCell(cell), row.Input.Axis)}. Pick a new action with the mouse or arrow keys.";
+        _draftConfig.ShiftButton = _shiftButton.SelectedIndex <= 0 ? "" : (string)_shiftButton.SelectedItem!;
+        if (string.IsNullOrWhiteSpace(_draftConfig.PanicChord)) _draftConfig.PanicChord = "Back+Start";
     }
 }

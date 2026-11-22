@@ -21,6 +21,7 @@ public sealed partial class MainForm : Form
     private readonly AutoMixBar _autoBar = new();
     private AutoMix? _autoMix;
     private EngineMixHost? _mixHost;
+    private readonly Stopwatch _autoMixClock = Stopwatch.StartNew();
     private readonly AppConfig _config;
     private readonly bool _preview;
     private readonly DeckPanel _a, _b;
@@ -63,11 +64,10 @@ public sealed partial class MainForm : Form
         BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(10);
         DoubleBuffered = true;
         var header = new Panel { Dock = DockStyle.Top, Height = 80, BackColor = BackColor, Padding = new Padding(24, 16, 24, 8) };
-        var brand = MakeLabel("MIXDOCK", 24, 12, 24, Theme.Text, true);
+        var brand = MakeLabel("HARP//MXR", 24, 12, 24, Theme.Text, true);
         var subtitle = MakeLabel("YOUR APPS.  YOUR MIX.", 27, 53, 8, Theme.Muted);
         var gear = new StudioButton { Text = "⚙", AccessibleName = "Advanced settings", Size = new Size(40, 40), Font = Theme.Font(17), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        header.Controls.AddRange([brand, subtitle, gear, _autoBar]);
-        header.Layout += (_, _) => { int dpi = DeviceDpi; _autoBar.SetBounds(dpi * 330 / 96, dpi * 8 / 96, Math.Max(100, header.Width - dpi * 430 / 96), dpi * 64 / 96); };
+        header.Controls.AddRange([brand, subtitle, gear]);
         header.Layout += (_, _) => gear.Location = new Point(header.Width - (int)(64 * DeviceDpi / 96f), (int)(24 * DeviceDpi / 96f));
         gear.Click += (_, _) => ShowAdvanced(gear);
 
@@ -143,11 +143,17 @@ public sealed partial class MainForm : Form
         _engine.Mixer.Crossfader = _cross.Value / 100.0; _engine.Mixer.Master = _master.Value / 100f;
         _panic.Click += (_, _) => ToggleMasterMute(_panic);
         _mixHost = new EngineMixHost(_engine);
-        _autoMix = new AutoMix(_mixHost) { FadeSeconds = _autoBar.FadeSeconds, EveryMinutes = _autoBar.EveryMinutes };
-        _mixHost.CrossfaderMoved += x => _cross.Value = (int)Math.Round(x * 100);
-        _autoBar.EnabledChanged += on => { if (_preview) return; _autoMix!.Enabled = on; if (!on) { _autoMix.Cancel(); _autoBar.SetStatus(""); } };
-        _autoBar.FadeSecondsChanged += v => _autoMix!.FadeSeconds = v;
-        _autoBar.EveryMinutesChanged += v => _autoMix!.EveryMinutes = v;
+        _mixHost.PausedLive = d => !Source(d).IsFile && _livePaused[d];
+        _mixHost.Resume = d => _ = SafeAsync(() => SetLivePausedAsync(d, false));
+        _mixHost.LookAhead = d => _config.LookAhead(d);
+        _mixHost.AppName = d => Panel(d).SelectedApp?.Name;
+        _mixHost.CachedAnalysis = DeckAnalysis;
+        _autoBar.PickNextRequested += () => _ = SafeAsync(PickNextFromLibraryAsync);
+        _autoMix = new AutoMix(_mixHost) { Preferences = _autoBar.Preferences };
+        _autoBar.EnabledChanged += on => { _autoMixClock.Restart(); _autoMix!.Enabled = on; _autoBar.ShowCard(_autoMix.Card); };
+        _autoBar.PreferencesChanged += p => _autoMix!.Preferences = p;
+        _autoBar.SkipRequested += () => _autoMix!.SkipStyle();
+        _autoBar.MixNowRequested += () => _autoMix!.MixNow();
         _monitor.PlayPauseClicked += SongPlayPause;
         _monitor.SeekRequested += (d, f) => { var ds = d == 0 ? _engine.DeckA : _engine.DeckB; if (ds.IsFile) ds.SeekTo(TimeSpan.FromSeconds(ds.Duration.TotalSeconds * f)); };
         AllowDrop = true;
@@ -211,7 +217,7 @@ public sealed partial class MainForm : Form
         if (endpoint is null) { SetMessage("No audio output available. Check your speakers in Settings.", true); return; }
         if (!OutputPolicy.IsAllowed(endpoint, _takeoverA.SinkId, _takeoverB.SinkId))
         {
-            SetMessage("MixDock never plays to a virtual cable or the redirect sink. Pick your headphones or speakers.", true);
+            SetMessage("HARP//MXR never plays to a virtual cable or the redirect sink. Pick your headphones or speakers.", true);
             RefreshDevices();
             return;
         }
@@ -254,20 +260,23 @@ public sealed partial class MainForm : Form
         {
             if (path == null)
             {
-                using var dlg = new OpenFileDialog { Title = "Load a song", Filter = "Music|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.aiff|All files|*.*" };
+                using var dlg = new OpenFileDialog { Title = "Load a song", Filter = TrackReaderFactory.OpenDialogFilter + "|All files|*.*" };
                 if (dlg.ShowDialog(this) != DialogResult.OK) { panel.Sources.SelectedIndex = -1; return; }
                 path = dlg.FileName;
             }
             panel.SetStatus("Loading…");
             takeover.Release();                         // give the app's own sound back
             DeckSync.Reset(_engine, di); _monitor.ResetNudge(di); _engine.Mixer.Key(di).Reset();
-            await deck.LoadFileAsync(path);
+            await _mixHost!.LoadFileAsync(di, path, _autoMix!);
             if (_engine.OutputId == null) await _engine.SetOutputAsync((_outputs.SelectedItem as OutputEndpoint)?.Id ?? OutputPolicy.Pick(AudioDiscovery.Outputs(), null, AudioDiscovery.DefaultOutputId(), _takeoverA.SinkId, _takeoverB.SinkId)?.Id ?? throw new InvalidOperationException("No real audio output available"));
-            panel.SetStatus($"LIVE · {deck.FileName}", true);
+            panel.SetStatus($"FILE · {deck.FileName}", true);
+            _recentFiles.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+            _recentFiles.Insert(0, path);
+            if (_recentFiles.Count > 8) _recentFiles.RemoveAt(8);
+            SetMessage($"{(deck.AutoMixCued ? "Auto Mix cued" : "Playing")} {deck.FileName} on Deck {DeckName(di)}.");
             ClearLivePause(di); ApplyLookAhead(di);
-            SetMessage($"Playing {deck.FileName} on Deck {(di == 0 ? "A" : "B")}.");
         }
-        catch (Exception ex) { panel.SetStatus("Could not open that file"); SetMessage("Could not open that file: " + ex.Message, true); Log.Write("LoadSong: " + ex); }
+        catch (Exception ex) { string why = TrackReaderFactory.Describe(path ?? "that file", ex); panel.SetStatus("Could not open that file"); SetMessage(why, true); Log.Write("LoadSong: " + ex); panel.Sources.SelectedIndex = -1; }
         finally { _audioChanges.Release(); }
     }
     private void SongPlayPause(int d)
@@ -330,7 +339,7 @@ public sealed partial class MainForm : Form
             {
                 panel.SetStatus(status, true);
                 SetMessage(takeover.RawSilenced
-                    ? $"{AppPicker.DisplayName(requested.Name)} now plays through MixDock. Turn the knobs."
+                    ? $"{AppPicker.DisplayName(requested.Name)} now plays through HARP//MXR. Turn the knobs."
                     : status);
             }
         }
@@ -351,7 +360,15 @@ public sealed partial class MainForm : Form
             double dur = ds.Duration.TotalSeconds;
             _monitor.SetFile(d, ds.IsFile, dur > 0 ? Math.Clamp(ds.Position.TotalSeconds / dur, 0, 1) : 0, ds.IsFile ? $"{Mmss(ds.Position)} / {Mmss(ds.Duration)}" : "", ds.Paused);
         }
-        if (!_preview && _autoMix != null) { _autoMix.Tick(_meterTimer.Interval); _autoBar.SetStatus(_autoMix.Status); }
+        if (_autoMix != null)
+        {
+            double elapsed = _autoMixClock.Elapsed.TotalMilliseconds;
+            _autoMixClock.Restart();
+            _autoMix.Tick(elapsed);
+            _autoBar.ShowCard(_autoMix.Card);
+            // The render thread moves the fader during a transition; mirror it without touching it.
+            if (_autoMix.Fading) _cross.DisplayValue((int)Math.Round(_engine.Mixer.Crossfader * 100));
+        }
         for (int d = 0; d < 2; d++) _monitor.SetDeck(d, DeckSync.HeardBpm(_engine, d), DeckSync.HeardPhase(_engine, d));
         _a.SetPeak(_engine.A.Peak); _b.SetPeak(_engine.B.Peak);
         UpdatePadRows();
@@ -400,6 +417,8 @@ public sealed partial class MainForm : Form
             case "CrossfaderA": _cross.Value = 0; AnnounceMove("CUT TO A"); break;
             case "CrossfaderB": _cross.Value = 100; AnnounceMove("CUT TO B"); break;
             case "AutoMix": if (!_preview) SetMessage(_autoBar.Toggle() ? "AUTO MIX on." : "AUTO MIX off."); break;
+            case "AutoMix.Now": if (!_preview && _autoMix?.Enabled == true) _autoMix.MixNow(); break;
+            case "AutoMix.Skip": if (!_preview && _autoMix?.Enabled == true) _autoMix.SkipStyle(); break;
             case "Panic": Panic(); break;
             case "PadOverlay": ToggleOverlay(); break;
             case "A.Mute": _a.Muted = !_a.Muted; _engine.A.Parameters = _a.GetParameters(); break;
@@ -409,11 +428,11 @@ public sealed partial class MainForm : Form
             case "FxCycle": CycleFx(); break;
             case "FxFreeze": ToggleFxFreeze(); break;
             case "QuantCycle": CycleQuantize(); break;
+            case "BankNext": SetBank((_bank + 1) % 4); break;
+            case "BankPrev": SetBank((_bank + 3) % 4); break;
             case "BankMode": CycleBankMode(); break;
             case "PadGrid": ToggleGridFloat(); break;
             case "PauseAll": PauseAll(); break;
-            case "BankNext": SetBank((_bank + 1) % 4); break;
-            case "BankPrev": SetBank((_bank + 3) % 4); break;
             default:
                 if (action.StartsWith("Bank:") && int.TryParse(action[5..], out int bn)) SetBank(bn - 1);
                 break;
@@ -435,18 +454,18 @@ public sealed partial class MainForm : Form
             using var dlg = new BindingsForm(_config);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                ApplyBindings();
-                SetMessage("Controller mappings saved and active.");
+                ApplyBindings(Gamepad.Read(out var state) ? state.Gamepad.Buttons : 0);
+                ShowControllerProfile();
             }
         }
         catch (Exception ex) { Log.Write("Mappings: " + ex); SetMessage("Could not open the mapping editor: " + ex.Message, true); }
         finally { _bindingsOpen = false; }
     }
-    private void ApplyBindings()
+    private void ApplyBindings(PadButton buttons)
     {
         ReleaseHeldGestures();
         _padMapper = _config.CreatePadMapper();
-        _padMapper.Reset(Gamepad.Read(out var st) ? st.Gamepad.Buttons : 0);
+        _padMapper.Reset(buttons);
         _axisDrivers.Clear(); _axisOwner.Clear();
         if (!_preview && ShotPath == null) { try { _config.Save(); } catch (Exception ex) { Log.Write("save bindings: " + ex.Message); } }
         if (_overlay.Visible) _overlay.Invalidate();
@@ -485,7 +504,10 @@ public sealed partial class MainForm : Form
         _padTimer.Stop(); if(!_preview) Gamepad.Rumble(0, 0);
         e.Cancel = true;
         _closing = true;
+        _libraryScan?.Cancel();
+        foreach (var worker in _trackCts) worker?.Cancel();
         _meterTimer.Stop();
+        foreach (var m in _memory) m?.Dispose();
         try { SaveSettings(); } catch { /* don't prevent exit */ }
         _hotkeys?.Dispose();
         StopMidi();

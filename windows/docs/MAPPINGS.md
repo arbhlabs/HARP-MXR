@@ -1,12 +1,46 @@
-# Key and Xbox controller mapping (MixDock 1.3 "MIDI Pad")
+# Stick FX (1.5)
 
-Configuration: `%APPDATA%\MixDock\config.json`. Choose **Mappings** in the app to open it in Notepad, then restart MixDock. Choose **PAD** (or press **Shift+F1**) to show a live cheatsheet of the controller with the current mapping; it switches to the shift labels while shift is held.
+**Profile "Stick FX"** (choose it under PROFILE or with View + RB). A first install starts on it; an existing config keeps the profile and edited layers it had. It is the Live DJ layout with these changes:
+
+| Input | Stick FX |
+|---|---|
+| Left stick ↕ | Crossfader (rate: it stays where you leave it) |
+| Left stick ↔ | The current set's two side effects (← / →), distance = amount |
+| Shift + left stick ↕ | Filter (spring), as before |
+| Right stick | Set pad: ↑ ↓ ← → = the set's four effects, distance = amount, diagonals morph |
+| L3 / R3 | Previous / next set |
+| Shift + R3 | FX clear |
+
+Release a stick and the effect glides back to dry. Echoes and reverbs ring out.
+
+| Set | ↑ | ↓ | ← | → | Left stick ← | Left stick → |
+|---|---|---|---|---|---|---|
+| 1 SPACE | Hall | Dub echo | Ping-pong | Shimmer | Gated verb | Noise riser |
+| 2 SWEEP | High-pass | Low-pass | Vowel | Comb | Wobble | Flanger |
+| 3 MOTION | Phaser | Flanger | Chorus | Auto pan | Vowel | Ping-pong |
+| 4 CHOP | Trance gate | Pump | Beat repeat | Transformer | Reverse | Gated verb |
+| 5 GRIT | Bit crush | Drive | Ring mod | Wavefold | Low-pass | Transformer |
+| 6 WARP | Freeze | Vinyl brake | Reverse | Pitch drop | Sub drop | Beat repeat |
+
+**Button-only effect:** Cut. **Tempo-synced:** beat repeat, reverse, freeze, transformer, trance gate, pump, auto pan, vowel, wobble, phaser, flanger, dub echo, ping-pong, gated verb, noise riser, sub drop.
+
+**More**
+
+- **Mouse:** each deck's FX row shows the set (click = next, right-click = previous) and its four effects (hold = play at 75 %). The XY pad plays the set like the right stick, and FREEZE latches it.
+- **Second controller:** see [CONTROLLERS.md](CONTROLLERS.md) for the FX Pad, the paddles and the GameSir G7 Pro.
+- **On-screen feedback:** every controller action shows a large card over the waveforms for 1.5 s. It names the effect or action, the amount, the stick or button, the deck, the set and its four directions.
+
+# Pad performer profile
+
+The table below describes the Pad performer preset introduced in MixDock 1.3. See the [controller mapping](../../README.md#controller-mapping) for the default Stick FX profile.
+
+Choose **Map Pad** to edit either layer. The Save button applies changes immediately. Open **PAD** or press **Shift+F1** for a diagram of your current bindings. Settings are stored in `%APPDATA%\HARP-MXR\config.json`.
 
 **1.3 turns the face buttons into a 16-pad MIDI-style grid:** the D-pad picks one of 4 banks, A/B/X/Y are the 4 pads of that bank, each bank has a mode (Sample, One-shot, Chord, Drum), pads launch on a beat grid, RT is the velocity, LB held stacks pads as layers, and everything is also sent as real MIDI (see "Pad banks" below).
 
 One *focus* deck at a time (LB / RB, shown as ◆ PAD). The right stick is a Kaoss-style space/FX pad that is **always on** (no Shift needed), the triggers are time-bend and beat-roll, the face buttons are four sample pads per deck, and SHIFT gives every control a second function. The crossfader is no longer on the controller sticks: use the on-screen fader, the mouse, the keyboard hotkeys, or Shift+RB (centre).
 
-## Default Xbox mapping
+## Pad performer Xbox mapping
 
 | Input | Normal | Shift (hold View, or hold LB+RB) |
 |---|---|---|
@@ -100,8 +134,8 @@ All parameter and effect changes are smoothed (60 ms stick amount, 5 ms effect s
 |---|---|---|
 | Loop roll, loop on/off | Slip loop: the song keeps running underneath | Same (render-side capture loop, no seeking needed) |
 | Beatjump | Real seek by the loop size, on the next beat | Not possible (apps cannot seek): status message, use rolls |
-| Play/pause | Yes | No (control the app itself) |
-| Echo, riser, filter, kills, cue, sync | Yes | Yes (SYNC aligns phase only; tempo cannot change) |
+| Play/pause | Pauses the decoder | Freezes the playhead and buffers ahead. When full, the source is paused if Windows exposes its media session. |
+| Echo, riser, filter, kills, sync | Yes | Yes, within the limits of the live buffer and detected beat grid |
 | Quantization | From detected beat; tap BPM fills in until detected | Same |
 
 Doubling an active loop works once the longer slice has been heard; halving always works.
@@ -143,7 +177,7 @@ Deck prefixes: `Focus.` (focused deck), `A.`, `B.`.
 
 Global keyboard bindings must contain at least one of `Ctrl`, `Alt`, `Shift`, `Win`, then a Windows key name such as `A`, `F8`, `Left`. Hotkeys accept every button action above except hold-type rolls (`Roll:`), including `Focus.` actions. Shortcuts use Win32 `RegisterHotKey`, which may fail silently if another app owns them.
 
-Controller polling uses the first connected XInput controller (slots 0-3, hot-plug rescan once per second).
+HARP//MXR reads connected XInput controllers in slots 0–3. See [controller roles](CONTROLLERS.md) for dual-controller setup.
 
 ## Filter feel (config.json)
 - FilterDeadzone (default 0.22): radial deadzone for the left stick Y spring filter.

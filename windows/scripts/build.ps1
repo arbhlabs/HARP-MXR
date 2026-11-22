@@ -16,7 +16,7 @@ foreach ($t in 'Dsp', 'Gamepad', 'Waveform', 'Pad', 'Sync', 'Routing', 'AudioTim
 Write-Host "Publishing portable win-x64 application $version ..."
 dotnet publish src/MixDock/MixDock.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o $Out
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
-$exe = Join-Path $Out 'MixDock.exe'
+$exe = Join-Path $Out 'HARP-MXR.exe'
 $evidence = [IO.Path]::GetFullPath("out\release-v$version-ui")
 $check = Start-Process -FilePath ([IO.Path]::GetFullPath($exe)) -ArgumentList '--ui-check', ('"' + $evidence + '"') -WindowStyle Hidden -PassThru
 if (!$check.WaitForExit(90000)) { Stop-Process -Id $check.Id; throw 'Offscreen UI check timed out' }
@@ -25,7 +25,6 @@ $result = Get-Content (Join-Path $evidence 'ui-check.json') -Raw | ConvertFrom-J
 if ($result.failures -ne 0) { throw 'Offscreen interaction assertions failed' }
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-images.ps1 -Evidence $evidence
 if ($LASTEXITCODE -ne 0) { throw 'Runtime image verification failed' }
-Copy-Item TEST_ME.md -Destination $Out
 $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
 Write-Host "Done: $exe  version $((Get-Item $exe).VersionInfo.FileVersion)  sha256 $hash"
 

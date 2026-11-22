@@ -25,3 +25,6 @@ Thumbs.db
 *.pem
 *.key
 *.pfx
+
+# verify output and screenshots
+out/

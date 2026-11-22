@@ -31,6 +31,7 @@ public sealed class PerformanceSampler
 
     // UI-thread controls
     private volatile float _bend;
+    internal float AutoBend { get; set; }
     private volatile bool _reverse;
     private double _bpm, _phaseIn = double.NaN; private readonly object _tempoLock = new();
     public float Bend { get => _bend; set => _bend = Math.Clamp(float.IsFinite(value) ? value : 0, 0, 1); }
@@ -143,13 +144,13 @@ public sealed class PerformanceSampler
             double ts;
             if (_spinT >= 0) { ts = SpinSpeed(_spinT); _spinT += 1.0 / Sr; if (_spinT >= SpinSeconds) _spinT = -1; }
             else if (_reverse) ts = -1;
-            else ts = FxCurves.BendSpeed(_bend);
+            else ts = FxCurves.BendSpeed(Math.Max(_bend, AutoBend));
             float ol = l, or = r;
             if (!_tape && ts < .999 && !_xfade) { _tape = true; _lag = 0; _speed = 1; }
             if (_tape)
             {
                 double limit;
-                if (ts < _speed) limit = (_reverse || _spinT >= 0) ? 1.0 / (Sr * .006) * 2 : 1.0 / (FxCurves.BrakeSeconds(_bend) * Sr);
+                if (ts < _speed) limit = (_reverse || _spinT >= 0) ? 1.0 / (Sr * .006) * 2 : 1.0 / (FxCurves.BrakeSeconds(Math.Max(_bend, AutoBend)) * Sr);
                 else limit = 1.0 / (FxCurves.SpinUpSeconds(Math.Max(0, _speed)) * Sr);
                 _speed += Math.Clamp(ts - _speed, -limit, limit);
                 _lag = Math.Clamp(_lag + 1 - _speed, 0, MaxLag);

@@ -42,6 +42,12 @@ Assert(click[50].Peak > 0.85f && click[49].Peak == 0 && click.Where((_, i) => i 
     Assert(small.Count == 500 && !small.TryGet(10, out _) && small.TryGet(499, out _), "live ring drops old columns, keeps the newest");
 }
 
+Assert(click[50].StartsTransient(click[49]) && !click[51].StartsTransient(click[50]), "Transient marker identifies the click attack only");
+Assert(!cols.Skip(10).Select((column, i) => column.StartsTransient(cols[i + 9])).Any(hit => hit), "Steady tone has no attack markers");
+var bassBed = new WaveColumn(.7f, .1f, .03f, .7f);
+Assert((bassBed with { High = .17f }).StartsTransient(bassBed), "Treble attack over steady bass is visible without a peak increase");
+Assert(!new WaveColumn(.01f, .015f, .02f, .025f).StartsTransient(default), "Noise-floor movement leaves the transient rail quiet");
+
 // ---- band split ----
 var lowB = MeanBands(WaveformAnalyzer.AnalyzeAll(Tone(60, 0.5, 1)), 20);
 var midB = MeanBands(WaveformAnalyzer.AnalyzeAll(Tone(1000, 0.5, 1)), 20);
@@ -83,6 +89,9 @@ Assert(!BeatGrid.Estimate(WaveformAnalyzer.AnalyzeAll(Tone(440, 0.3, 2))).Valid,
     var (w30, f30) = WaveView.Layout(30);
     Assert(w30 * (1 - f30) >= 30, "30 s look-ahead fits in the window");
 }
+TrackAnalysisChecks.Run(Assert);
+TrackCacheChecks.Run(Assert);
+LiveMemoryChecks.Run(Assert);
 Console.WriteLine($"ALL {count} TESTS PASSED");
 return 0;
 

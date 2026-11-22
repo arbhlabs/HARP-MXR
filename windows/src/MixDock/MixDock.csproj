@@ -7,21 +7,35 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>MixDock</AssemblyName>
+    <AssemblyName>HARP-MXR</AssemblyName>
     <RootNamespace>MixDock</RootNamespace>
-    <Version>1.4.1</Version>
+    <Version>1.5.0</Version>
     <AssemblyTitle>HARP//MXR</AssemblyTitle>
     <Product>HARP//MXR</Product>
     <Company>ARBH Labs</Company>
     <Copyright>(c) ARBH Labs</Copyright>
-    <Description>Per-app DJ mixer for Windows</Description>
+    <Description>HARP//MXR: two-deck live DJ mixer for Windows</Description>
     <ApplicationIcon>MixDock.ico</ApplicationIcon>
-    <FileVersion>1.4.1.0</FileVersion>
+    <FileVersion>1.5.0.0</FileVersion>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="NAudio" Version="3.2.0" /><PackageReference Include="System.Management" Version="9.0.0" /></ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\LICENSE;..\..\THIRD-PARTY-NOTICES.md;..\..\WINFORMS-THIRD-PARTY-NOTICES.txt"
+          Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+  <Target Name="PublishDotNetNotices" AfterTargets="Publish" DependsOnTargets="ResolveFrameworkReferences"
+          Condition="'$(SelfContained)' == 'true'">
+    <ItemGroup>
+      <DotNetRuntimePack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+    </ItemGroup>
+    <Error Condition="'@(DotNetRuntimePack)' == ''" Text="The .NET runtime pack is required for redistribution notices." />
+    <Copy SourceFiles="@(DotNetRuntimePack->'%(PackageDirectory)/LICENSE.TXT');@(DotNetRuntimePack->'%(PackageDirectory)/THIRD-PARTY-NOTICES.TXT')"
+          DestinationFiles="$(PublishDir)/DOTNET-LICENSE.txt;$(PublishDir)/DOTNET-THIRD-PARTY-NOTICES.txt"
+          SkipUnchangedFiles="true" />
+  </Target>
+  <ItemGroup><PackageReference Include="NAudio" Version="3.2.0" /><PackageReference Include="System.Management" Version="9.0.0" /><PackageReference Include="NVorbis" Version="0.10.5" /><PackageReference Include="Concentus" Version="2.2.2" /><PackageReference Include="Concentus.OggFile" Version="1.0.6" /></ItemGroup>
 </Project>

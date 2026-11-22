@@ -6,7 +6,7 @@ using MixDock.Ui;
 
 namespace MixDock;
 
-/// <summary>`MixDock.exe --shot out.png [--app vivaldi]`: runs the real window off-screen, selects an app, saves a screenshot, exits.</summary>
+/// <summary>`HARP-MXR.exe --shot out.png [--app vivaldi]`: runs the real window off-screen, selects an app, saves a screenshot, exits.</summary>
 public sealed partial class MainForm
 {
     public static string? ShotPath;
@@ -23,6 +23,13 @@ public sealed partial class MainForm
         StartPosition = FormStartPosition.Manual;
         Location = new Point(-20000, -20000);
         ShowInTaskbar = false;
+    }
+
+    private static void SavePreviewShot(Control console, string path)
+    {
+        using var bitmap = new Bitmap(console.Width, console.Height);
+        console.DrawToBitmap(bitmap, console.ClientRectangle);
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
 
     private async Task RunShotAsync()
@@ -54,7 +61,7 @@ public sealed partial class MainForm
                     _b.SetApps(apps); _b.Sources.SelectedItem = _b.Sources.Items.Cast<AudioApp>().FirstOrDefault(x => x.Pid == spot.Pid);
                     await SafeAsync(() => ArmAsync(_b, _engine.DeckB, _engine.DeckA, _takeoverB));
                 }
-                _autoMix.Enabled = true; _autoMix.FadeSeconds = 6; _autoMix.EveryMinutes = 0.6;
+                _autoMix.Enabled = true;
                 int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
                 Log.Write($"soak: start {ShotSoak}s, spotify={(spot == null ? "none" : spot.Name + " playing=" + spot.Playing)}, A={_engine.DeckA.ActivePid} B={_engine.DeckB.ActivePid}");
                 for (int sec = 0; sec < ShotSoak; sec += 5)
@@ -76,7 +83,7 @@ public sealed partial class MainForm
                     await Task.Delay(9000);
                     Log.Write($"shot: BPM A={_engine.DeckA.Bpm.Bpm:F1} B={_engine.DeckB.Bpm.Bpm:F1}");
                 }
-                _autoMix.Enabled = true; _autoMix.FadeSeconds = 6;
+                _autoMix.Enabled = true;
                 _autoMix.ForceFade();
                 bool shotTaken = false, started = false;
                 for (int i = 0; i < 40; i++)

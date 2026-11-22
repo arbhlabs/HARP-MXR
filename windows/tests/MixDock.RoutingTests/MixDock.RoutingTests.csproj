@@ -3,5 +3,6 @@
   <ItemGroup>
     <Compile Include="../../src/MixDock/Audio/RedirectCore.cs" Link="Audio/RedirectCore.cs" />
     <Compile Include="../../src/MixDock/Platform/OutputPolicy.cs" Link="Platform/OutputPolicy.cs" />
+    <Compile Include="../../src/MixDock/Platform/DeckBrowser.cs" Link="Platform/DeckBrowser.cs" />
   </ItemGroup>
 </Project>

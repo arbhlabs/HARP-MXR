@@ -13,7 +13,7 @@
     <Compile Include="../../src/MixDock/Platform/ActionCatalog.cs" Link="Platform/ActionCatalog.cs" />
     <Compile Include="../../src/MixDock/Platform/PadBanks.cs" Link="Platform/PadBanks.cs" />
     <Compile Include="../../src/MixDock/Platform/Midi.cs" Link="Platform/Midi.cs" />
-    <Compile Include="../../src/MixDock/Settings/AppConfig.cs" Link="Settings/AppConfig.cs" />
+    <Compile Include="../../src/MixDock/Settings/AppConfig.cs" Link="Settings/AppConfig.cs" /><Compile Include="../../src/MixDock/Settings/DataFolder.cs" Link="Settings/DataFolder.cs" />
     <Compile Include="../../src/MixDock/Settings/SliceStore.cs" Link="Settings/SliceStore.cs" />
   </ItemGroup>
 </Project>

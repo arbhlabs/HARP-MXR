@@ -34,8 +34,20 @@ const int Sr = 44100;
                  (PadButton.LeftShoulder, "QuantCycle"), (PadButton.RightShoulder, "Focus.Sync"), (PadButton.Start, "PadGrid") })
     {
         var m = cfg.CreatePadMapper(); m.Update(PadButton.Back, t += 20); m.Update(PadButton.Back, t += 100);
-        var ev = Tap(m, b, PadButton.Back); ev.AddRange(m.Update(0, t += 20));
-        Assert(Fired(ev) == want, $"Shift layer: {b} -> {want} (the 1.2 loop/cue stay on Shift+D-pad)");
+        // View + LB/RB is also the profile chord (a quick tap switches profile), so the shifted shoulder action is a HOLD
+        // past PadMapper.TapMaxMs; every other button fires its shift action on a normal tap.
+        bool shoulder = b is PadButton.LeftShoulder or PadButton.RightShoulder;
+        var ev = new List<PadEvent>();
+        ev.AddRange(m.Update(PadButton.Back | b, t += 20));
+        ev.AddRange(m.Update(PadButton.Back | b, t += shoulder ? PadMapper.TapMaxMs + 50 : 50));
+        ev.AddRange(m.Update(PadButton.Back, t += 20)); ev.AddRange(m.Update(0, t += 20));
+        Assert(Fired(ev) == want, $"Shift layer: {b} -> {want}{(shoulder ? " (held: a tap is the profile chord)" : "")}");
+        if (shoulder)
+        {
+            var q = cfg.CreatePadMapper(); q.Update(PadButton.Back, t += 20);
+            var tap = q.Update(PadButton.Back | b, t += 20); tap.AddRange(q.Update(PadButton.Back, t += 60)); tap.AddRange(q.Update(0, t += 20));
+            Assert(Fired(tap) == "" && tap.Any(e => e.Kind is PadEventKind.PreviousProfile or PadEventKind.NextProfile), $"View + quick {b} tap switches the controller profile instead");
+        }
     }
     {   // View is the shift button itself, so Shift+View is reached through the LB+RB chord
         var m = cfg.CreatePadMapper(); var lr = PadButton.LeftShoulder | PadButton.RightShoulder;

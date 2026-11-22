@@ -4,7 +4,7 @@ namespace MixDock.Audio;
 
 public sealed record DeckParameters(double LowDb = 0, double MidDb = 0,
     double HighDb = 0, double Filter = 0, double Trim = 0.85, bool Mute = false,
-    bool LowKill = false, bool MidKill = false, bool HighKill = false);
+    bool LowKill = false, bool MidKill = false, bool HighKill = false, bool BassCut = false);
 
 /// <summary>
 /// Per-deck EQ / filter / auto-gain / trim. Runs on the render thread; the UI swaps immutable parameters atomically.
@@ -20,8 +20,8 @@ public sealed class DeckDsp
     private readonly Biquad[] _filter = [new(), new()];
     private DeckParameters _desired = new();
     private DeckParameters? _configured;
-    private double _confAutoLow;
-    private double _autoLow, _autoFilter;
+    private double _confAutoLow, _confAutoMid, _confAutoHigh;
+    private double _autoLow, _autoMid, _autoHigh, _autoFilter;
     private double _smoothGain = 0.85;
     private volatile float _peak;
     // auto gain state
@@ -31,6 +31,8 @@ public sealed class DeckDsp
 
     /// <summary>Extra low-shelf gain (dB, <= 0) applied by AUTO MIX for the bass swap.</summary>
     public double AutoLowDb { get => Volatile.Read(ref _autoLow); set => Volatile.Write(ref _autoLow, Math.Clamp(value, -60, 0)); }
+    internal double AutoMidDb { get => _autoMid; set => _autoMid = Math.Clamp(value, -60, 0); }
+    internal double AutoHighDb { get => _autoHigh; set => _autoHigh = Math.Clamp(value, -60, 0); }
     /// <summary>Filter offset (-1 low-pass .. +1 high-pass) applied by AUTO MIX sweeps, added to the user's filter.</summary>
     public double AutoFilter { get => Volatile.Read(ref _autoFilter); set => Volatile.Write(ref _autoFilter, Math.Clamp(value, -1, 1)); }
     /// <summary>Slow loudness levelling so two sources sit at the same volume (-12..+6 dB).</summary>
@@ -59,16 +61,18 @@ public sealed class DeckDsp
         if (output.Length < input.Length) throw new ArgumentException("Destination too small");
         var p = Parameters;
         double autoLow = AutoLowDb, autoFilter = AutoFilter;
+        double autoMid = _autoMid, autoHigh = _autoHigh;
         double target = Math.Clamp(p.Filter + autoFilter, -1, 1);
-        if (_configured != p || Math.Abs(autoLow - _confAutoLow) > 0.25)
+        if (_configured != p || Math.Abs(autoLow - _confAutoLow) > 0.25 ||
+            Math.Abs(autoMid - _confAutoMid) > .25 || Math.Abs(autoHigh - _confAutoHigh) > .25)
         {
             for (int ch = 0; ch < 2; ch++)
             {
-                _eq[ch, 0].Shelf(SampleRate, 120, p.LowKill ? -96 : Math.Max(-96, p.LowDb + autoLow), false);
-                _eq[ch, 1].Peak(SampleRate, 1050, 0.8, p.MidKill ? -96 : p.MidDb);
-                _eq[ch, 2].Shelf(SampleRate, 7500, p.HighKill ? -96 : p.HighDb, true);
+                _eq[ch, 0].Shelf(SampleRate, 120, p.LowKill ? -96 : Math.Max(-96, p.LowDb + autoLow - (p.BassCut ? 24 : 0)), false);
+                _eq[ch, 1].Peak(SampleRate, 1050, 0.8, p.MidKill ? -96 : p.MidDb + autoMid);
+                _eq[ch, 2].Shelf(SampleRate, 7500, p.HighKill ? -96 : p.HighDb + autoHigh, true);
             }
-            _configured = p; _confAutoLow = autoLow;
+            _configured = p; _confAutoLow = autoLow; _confAutoMid = autoMid; _confAutoHigh = autoHigh;
         }
         bool ag = _autoGain;
         double agTarget = ag ? Math.Pow(10, Volatile.Read(ref _agDb) / 20) : 1;

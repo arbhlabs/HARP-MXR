@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Renders the 1.3 pad-grid overlay, the PAD cheatsheet and the MIDI settings window to PNG without starting MixDock.exe or touching audio. -->
+  <!-- Renders the 1.3 pad-grid overlay, the PAD cheatsheet and the MIDI settings window to PNG without starting HARP-MXR.exe or touching audio. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
@@ -23,5 +23,8 @@
     <Compile Include="../../src/MixDock/Audio/ChordTheory.cs" Link="Audio/ChordTheory.cs" />
     <Compile Include="../../src/MixDock/Audio/KeyDetector.cs" Link="Audio/KeyDetector.cs" />
     <Compile Include="../../src/MixDock/Settings/AppConfig.cs" Link="Settings/AppConfig.cs" />
+    <Compile Include="../../src/MixDock/Ui/FxHud.cs" Link="Ui/FxHud.cs" />
+    <Compile Include="../../src/MixDock/Audio/FxSets.cs" Link="Audio/FxSets.cs" />
+    <Compile Include="../../src/MixDock/Settings/DataFolder.cs" Link="Settings/DataFolder.cs" />
   </ItemGroup>
 </Project>

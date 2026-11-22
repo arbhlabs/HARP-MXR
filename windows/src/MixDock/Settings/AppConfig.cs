@@ -40,6 +40,8 @@ public sealed class AppConfig
         if (LookAheadSec.Length < 2) LookAheadSec = [LookAhead(0), LookAhead(1)];
         LookAheadSec[deck] = Math.Clamp(double.IsFinite(sec) ? sec : DefaultLookAheadSec, 0, MaxLookAheadSec);
     }
+    /// <summary>Waveform memory: recognise live tracks and keep their derived waveform, fingerprint and analysis (never audio) on disk.</summary>
+    public bool WaveformMemory { get; set; } = true;
     public int Crossfader { get; set; } = 50;
     public int Master { get; set; } = 88;
     public bool GamepadEnabled { get; set; } = true;
@@ -65,7 +67,7 @@ public sealed class AppConfig
     };
     /// <summary>Config schema version. 0/1 = MixDock 1.0 (left stick X = crossfader); 2 = 1.1 pro mapping; 3 = 1.2 performance mode (right stick = FX pad); 4 = 1.3 MIDI pad (banks, chords, quantize, MIDI).</summary>
     public int ConfigVersion { get; set; }
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 8;
 
     // ---- 1.3 "MIDI Pad"
     /// <summary>The 4 pad banks (D-pad Up/Right/Down/Left). Defaults: Sample, One-shot, Chord, Drum.</summary>
@@ -117,10 +119,16 @@ public sealed class AppConfig
     public double RiserBeats { get; set; } = 8;
 
     // ---- 1.4 "Live DJ" defaults: every input does something audible on a live app deck (Spotify, browser) out of the box.
-    public static Dictionary<string, string> DefaultAxes() => new()
+    public static Dictionary<string, string> DefaultAxes()
+    {
+        var axes = ClassicAxes();
+        axes["LeftThumbX"] = "Focus.FxBlend";
+        return axes;
+    }
+    private static Dictionary<string, string> ClassicAxes() => new()
     {
         ["LeftThumbY"] = "Focus.Filter",
-        ["LeftThumbX"] = "Focus.FxBlend",
+        ["LeftThumbX"] = "Crossfader",
         ["RightThumbX"] = "Focus.FxX",
         ["RightThumbY"] = "Focus.FxY",
         ["LeftTrigger"] = "Focus.EchoThrow",
@@ -132,7 +140,14 @@ public sealed class AppConfig
         ["LeftTrigger"] = "Focus.TimeBend",
         ["RightTrigger"] = "Focus.Reverse"
     };
-    public static Dictionary<string, string> DefaultButtons() => new()
+    public static Dictionary<string, string> DefaultButtons()
+    {
+        var buttons = ClassicButtons();
+        buttons["Left"] = "Crossfader-";
+        buttons["Right"] = "Crossfader+";
+        return buttons;
+    }
+    private static Dictionary<string, string> ClassicButtons() => new()
     {
         ["A"] = "Focus.LowKill", ["B"] = "Focus.Loop",
         ["X"] = "Focus.Roll:1/4", ["Y"] = "Focus.Roll:1/8",
@@ -194,15 +209,79 @@ public sealed class AppConfig
         ["LeftThumb"] = "Focus.EqReset", ["RightThumb"] = "FxFreeze",
         ["Back"] = "BankMode", ["Start"] = "PadGrid"
     };
-    public static readonly string[] Presets = { "Live DJ", "Pad performer" };
+    // ---- 1.5 stick FX (R3): "Stick FX" = Live DJ with the crossfader on left-stick ↕, the set's two side effects on
+    // left-stick ↔, the 4-direction set pad on the right stick and L3 / R3 stepping the set. The filter moves to Shift +
+    // left-stick ↕ (same spring). The crossfader axis is the rate control: it stays where you leave it.
+    public static Dictionary<string, string> StickFxAxes()
+    {
+        var a = DefaultAxes();
+        a["LeftThumbY"] = "Crossfader"; a["LeftThumbX"] = "Focus.SetSide";
+        a["RightThumbX"] = "Focus.SetPadX"; a["RightThumbY"] = "Focus.SetPadY";
+        return a;
+    }
+    public static Dictionary<string, string> StickFxShiftAxes() { var a = DefaultShiftAxes(); a["LeftThumbY"] = "Focus.Filter"; return a; }
+    public static Dictionary<string, string> StickFxButtons()
+    {
+        var b = DefaultButtons(); b["A"] = "Focus.BassCut"; b["LeftThumb"] = "SetPrev"; b["RightThumb"] = "SetNext"; return b;
+    }
+    public static Dictionary<string, string> StickFxShiftButtons() { var b = DefaultShiftButtons(); b["RightThumb"] = "FxClear"; return b; }
+    // ---- "FX Pad": controller 2 (R7). Clicky buttons = momentary hits, sticks = two 4-direction set pads (this set and
+    // the next), triggers = pressure (echo throw, riser build; with Shift: brake depth, reverse), D-pad = set and target.
+    public static Dictionary<string, string> FxPadAxes() => new()
+    {
+        ["LeftThumbX"] = "Focus.SetPadX", ["LeftThumbY"] = "Focus.SetPadY",
+        ["RightThumbX"] = "Focus.SetPad2X", ["RightThumbY"] = "Focus.SetPad2Y",
+        ["LeftTrigger"] = "Focus.EchoThrow", ["RightTrigger"] = "Riser"
+    };
+    public static Dictionary<string, string> FxPadShiftAxes() => new() { ["LeftTrigger"] = "Focus.TimeBend", ["RightTrigger"] = "Focus.Reverse" };
+    public static Dictionary<string, string> FxPadButtons() => new()
+    {
+        ["A"] = "Focus.Stutter:1/8", ["B"] = "Focus.Stutter:1/16", ["X"] = "Focus.Transformer:1/16", ["Y"] = "Focus.GrainFreeze",
+        ["LeftShoulder"] = "Focus.Cut", ["RightShoulder"] = "Focus.SubDrop",
+        ["Up"] = "SetNext", ["Down"] = "SetPrev", ["Left"] = "FxTargetPrev", ["Right"] = "FxTargetNext",
+        ["LeftThumb"] = "SetPrev", ["RightThumb"] = "SetNext", ["Back"] = "FxClear", ["Start"] = "PadOverlay"
+    };
+    public static Dictionary<string, string> FxPadShiftButtons() => new()
+    {
+        ["A"] = "Focus.Stutter:1/4", ["B"] = "Focus.Stutter:1/32", ["X"] = "Focus.Transformer:1/32", ["Y"] = "Focus.SpinBack",
+        ["LeftShoulder"] = "Focus.Reverse", ["RightShoulder"] = "Focus.TimeBend",
+        ["Up"] = "SetNext", ["Down"] = "SetPrev", ["Left"] = "FxTargetPrev", ["Right"] = "FxTargetNext",
+        ["LeftThumb"] = "FxClear", ["RightThumb"] = "FxClear", ["Start"] = "SwapControllers"
+    };
+    /// <summary>Generic extra inputs (back paddles, extra top buttons) a controller exposes beyond XInput.</summary>
+    public const int ExtraButtonCount = 8;
+    public static readonly string[] Presets = { "Live DJ", "Pad performer", "Classic DJ", "Stick FX", "FX Pad", "GameSir G7 Pro" };
     /// <summary>Replace all four controller layers (and the modifiers) with a named preset.</summary>
     public void ApplyPreset(string name)
     {
+        if (name is "Stick FX" or "GameSir G7 Pro")
+        {
+            GamepadAxes = StickFxAxes(); ShiftAxes = StickFxShiftAxes(); GamepadButtons = StickFxButtons(); ShiftButtons = StickFxShiftButtons();
+            ShiftButton = "Back"; ShiftChord = "LeftShoulder+RightShoulder"; PanicChord = "Back+Start"; PanicHoldMs = 500;
+            if (name == "GameSir G7 Pro")
+            {
+                // back paddles L4 / R4 = Extra1 / Extra2, top buttons L5 / R5 = Extra3 / Extra4 (see windows/docs/CONTROLLERS.md)
+                ShiftButton = "Back,Extra1";
+                GamepadButtons["Extra2"] = "SetNext";
+                GamepadButtons["Extra3"] = "Focus.PlayPause";
+                GamepadButtons["Extra4"] = "Focus.Sync";
+                ShiftButtons["Extra2"] = "SetPrev";
+            }
+            return;
+        }
+        if (name == "FX Pad")
+        {
+            GamepadAxes = FxPadAxes(); ShiftAxes = FxPadShiftAxes(); GamepadButtons = FxPadButtons(); ShiftButtons = FxPadShiftButtons();
+            ShiftButton = "Back"; ShiftChord = ""; PanicChord = "Back+Start"; PanicHoldMs = 500;
+            return;
+        }
         bool pad = name == "Pad performer";
-        GamepadAxes = pad ? PadAxes() : DefaultAxes();
+        bool classic = name is "Classic" or "Classic DJ";
+        GamepadAxes = pad ? PadAxes() : classic ? ClassicAxes() : DefaultAxes();
         ShiftAxes = pad ? PadShiftAxes() : DefaultShiftAxes();
-        GamepadButtons = pad ? PadButtons() : DefaultButtons();
-        ShiftButtons = pad ? PadShiftButtons() : DefaultShiftButtons();
+        GamepadButtons = pad ? PadButtons() : classic ? V5Buttons() : DefaultButtons();
+        if (name == "Live DJ") GamepadButtons["A"] = "Focus.BassCut";
+        ShiftButtons = pad ? PadShiftButtons() : classic ? V5ShiftButtons() : DefaultShiftButtons();
         ShiftButton = "Back"; ShiftChord = "LeftShoulder+RightShoulder"; PanicChord = "Back+Start"; PanicHoldMs = 500;
     }
     private static Dictionary<string, string> V2Axes() => new()
@@ -294,13 +373,14 @@ public sealed class AppConfig
             // A layout the user edited is left exactly as it is.
             bool untouched = Same(GamepadAxes, PadAxes()) && Same(GamepadButtons, PadButtons()) && Same(ShiftButtons, PadShiftButtons())
                 && (Same(ShiftAxes, PadShiftAxes()) || Same(ShiftAxes, DefaultShiftAxes()));
-            if (untouched) ApplyPreset("Live DJ");
+            if (untouched) ApplyPreset("Default");
         }
         if (ConfigVersion < 6)
         {
             // 1.5 Live DJ remap: D-pad left/right = crossfader, left stick X = FX blend, mid/high kill move to Shift+D-pad
             // left/right and bank select to Shift+D-pad up/down (next/previous). Only an untouched 1.4 layout changes.
-            if (GamepadAxes.GetValueOrDefault("LeftThumbX") == "Crossfader" && Same(GamepadButtons, V5Buttons()) && Same(ShiftButtons, V5ShiftButtons()))
+            if (Same(GamepadAxes, ClassicAxes()) && Same(ShiftAxes, DefaultShiftAxes()) &&
+                Same(GamepadButtons, V5Buttons()) && Same(ShiftButtons, V5ShiftButtons()))
             {
                 GamepadAxes["LeftThumbX"] = "Focus.FxBlend";
                 GamepadButtons = DefaultButtons(); ShiftButtons = DefaultShiftButtons();
@@ -316,7 +396,18 @@ public sealed class AppConfig
         MidiChannel = Math.Clamp(MidiChannel, 1, 16); MidiChordChannel = Math.Clamp(MidiChordChannel, 1, 16);
         MidiNoteBase = Math.Clamp(MidiNoteBase, 0, 111); MidiFxCc = Math.Clamp(MidiFxCc, 0, 127);
         ManualKeyPc = ((ManualKeyPc % 12) + 12) % 12;
+        NormalizeControllerProfiles();
         ConfigVersion = CurrentVersion;
+    }
+
+    /// <summary>A first-run config: Stick FX is the default profile of controller 1. Existing configs keep their active
+    /// profile and edited layers; Stick FX is one switch away in Settings.</summary>
+    public static AppConfig Fresh()
+    {
+        var c = new AppConfig { ConfigVersion = CurrentVersion, ControllerProfileName = "Stick FX" };
+        c.ApplyPreset("Stick FX");
+        c.ControllerProfiles["Stick FX"] = c.CaptureProfile();
+        return c;
     }
 
     private static List<BankState> NormalizeBanks(List<BankState>? banks)
@@ -335,17 +426,187 @@ public sealed class AppConfig
     }
 
     public MixDock.Platform.PadMapper CreatePadMapper()
-        => new(GamepadButtons, ShiftButtons, ShiftButton, ShiftChord, PanicChord, PanicHoldMs);
+        => new(GamepadButtons, ShiftButtons, ShiftButton, ShiftChord, PanicChord, PanicHoldMs, profileShortcuts: true);
 
-    public static string DirectoryPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MixDock");
+    public sealed record ControllerProfile(Dictionary<string, string> Axes, Dictionary<string, string> ShiftAxes,
+        Dictionary<string, string> Buttons, Dictionary<string, string> ShiftButtons, string ShiftButton, string ShiftChord,
+        string PanicChord, int PanicHoldMs);
+
+    private static readonly string[] FactoryProfiles = ["Default", "Classic", "Live DJ", "Pad performer", "Stick FX", "FX Pad", "GameSir G7 Pro"];
+    public string ControllerProfileName { get; set; } = "Default";
+    /// <summary>Profile of controller 2 (the FX pad). Its bindings live in <see cref="ControllerProfiles"/> (or the factory preset);
+    /// they never touch the top-level layers, which always belong to controller 1.</summary>
+    public string FxPadProfileName { get; set; } = "FX Pad";
+    /// <summary>Controller identity ("VID:PID", hex) that becomes the FX pad whenever two controllers are connected; empty = by slot.
+    /// The default is the Xbox Wireless Controller over Bluetooth.</summary>
+    public string FxPadDevice { get; set; } = "045E:0B13";
+    /// <summary>Controller identity that is always controller 1 (the mixer) when two are connected; empty = any.</summary>
+    public string MixerDevice { get; set; } = "";
+    /// <summary>Stick FX set of controller 1 and of the FX pad (persisted), 0-based.</summary>
+    public int FxSet { get; set; }
+    public int FxPadSet { get; set; } = 1;
+
+    /// <summary>Bindings of any profile without switching to it: the live top-level layers for the active profile, the stored
+    /// copy for a saved one, the factory preset otherwise.</summary>
+    public ControllerProfile ProfileFor(string name)
+    {
+        if (string.Equals(name, ControllerProfileName, StringComparison.OrdinalIgnoreCase)) return CaptureProfile();
+        if (ControllerProfiles.TryGetValue(name, out var stored)) return stored;
+        var stock = new AppConfig(); stock.ApplyPreset(ProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase) ? name : "FX Pad");
+        return stock.CaptureProfile();
+    }
+
+    /// <summary>A pad mapper for the FX pad (controller 2) from its own profile.</summary>
+    public PadMapper CreateFxPadMapper()
+    {
+        var p = ProfileFor(FxPadProfileName);
+        return new(p.Buttons, p.ShiftButtons, p.ShiftButton, p.ShiftChord, p.PanicChord, p.PanicHoldMs, profileShortcuts: true);
+    }
+
+    /// <summary>A working copy whose active (top-level) profile is the FX pad's, for the mapping editor.</summary>
+    public AppConfig FxPadEditCopy()
+    {
+        var copy = new AppConfig();
+        copy.ControllerProfiles = new(ControllerProfiles, StringComparer.OrdinalIgnoreCase);
+        copy.ControllerProfiles[ControllerProfileName] = CaptureProfile();
+        copy.ControllerProfileName = FxPadProfileName;
+        copy.LoadProfile(ProfileFor(FxPadProfileName));
+        return copy;
+    }
+
+    /// <summary>Takes the FX pad's profile back from an edited <see cref="FxPadEditCopy"/>; controller 1's layers stay as they are.</summary>
+    public void CommitFxPadEdit(AppConfig edited)
+    {
+        var mine = CaptureProfile();
+        foreach (var (name, profile) in edited.ControllerProfiles)
+            if (!string.Equals(name, ControllerProfileName, StringComparison.OrdinalIgnoreCase)) ControllerProfiles[name] = profile;
+        ControllerProfiles[edited.ControllerProfileName] = edited.CaptureProfile();
+        FxPadProfileName = edited.ControllerProfileName;
+        LoadProfile(mine);
+        ControllerProfiles[ControllerProfileName] = mine;
+    }
+
+    /// <summary>Next / previous profile for the FX pad (View + LB / RB tap on controller 2).</summary>
+    public string CycleFxPadProfile(int step)
+    {
+        var names = ProfileNames.ToList();
+        int i = Math.Max(0, names.FindIndex(n => string.Equals(n, FxPadProfileName, StringComparison.OrdinalIgnoreCase)));
+        FxPadProfileName = names[((i + step) % names.Count + names.Count) % names.Count];
+        return FxPadProfileName;
+    }
+    public Dictionary<string, ControllerProfile> ControllerProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonIgnore]
+    public IEnumerable<string> ProfileNames => FactoryProfiles.Concat(ControllerProfiles.Keys
+        .Where(name => !IsFactoryProfile(name)).Order(StringComparer.OrdinalIgnoreCase));
+    [JsonIgnore]
+    public bool CanModifyProfileName => !IsFactoryProfile(ControllerProfileName);
+
+    private static bool IsFactoryProfile(string name) => FactoryProfiles.Contains(name, StringComparer.OrdinalIgnoreCase);
+    private static bool IsProfileName(string? name) => name is { Length: > 0 and <= 32 } && !name.Any(char.IsControl);
+
+    private ControllerProfile CaptureProfile() => new(new(GamepadAxes), new(ShiftAxes), new(GamepadButtons), new(ShiftButtons),
+        ShiftButton, ShiftChord, PanicChord, PanicHoldMs);
+
+    private void LoadProfile(ControllerProfile profile)
+    {
+        GamepadAxes = new(profile.Axes);
+        ShiftAxes = new(profile.ShiftAxes);
+        GamepadButtons = new(profile.Buttons);
+        ShiftButtons = new(profile.ShiftButtons);
+        ShiftButton = profile.ShiftButton;
+        ShiftChord = profile.ShiftChord;
+        PanicChord = profile.PanicChord;
+        PanicHoldMs = profile.PanicHoldMs;
+    }
+
+    private void NormalizeControllerProfiles()
+    {
+        var normalized = new Dictionary<string, ControllerProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, profile) in ControllerProfiles ?? [])
+        {
+            if (!IsProfileName(name) || profile is not { Axes: not null, ShiftAxes: not null, Buttons: not null,
+                    ShiftButtons: not null, ShiftButton: not null, ShiftChord: not null, PanicChord: not null }) continue;
+            normalized.TryAdd(name, profile);
+        }
+        ControllerProfiles = normalized;
+        if (ConfigVersion < 8 || !ProfileNames.Contains(ControllerProfileName, StringComparer.OrdinalIgnoreCase))
+        {
+            var stock = new AppConfig();
+            ControllerProfileName = "Imported";
+            foreach (var name in FactoryProfiles)
+            {
+                stock.ApplyPreset(name);
+                if (Same(GamepadAxes, stock.GamepadAxes) && Same(ShiftAxes, stock.ShiftAxes) &&
+                    Same(GamepadButtons, stock.GamepadButtons) && Same(ShiftButtons, stock.ShiftButtons) &&
+                    ShiftButton == stock.ShiftButton && ShiftChord == stock.ShiftChord &&
+                    PanicChord == stock.PanicChord && PanicHoldMs == stock.PanicHoldMs)
+                {
+                    ControllerProfileName = name;
+                    break;
+                }
+            }
+        }
+        ControllerProfiles[ControllerProfileName] = CaptureProfile();
+    }
+
+    public bool SwitchProfile(string name)
+    {
+        var canonical = ProfileNames.FirstOrDefault(item => string.Equals(item, name, StringComparison.OrdinalIgnoreCase));
+        if (canonical == null || canonical == ControllerProfileName) return false;
+        ControllerProfiles[ControllerProfileName] = CaptureProfile();
+        ControllerProfileName = canonical;
+        if (ControllerProfiles.TryGetValue(canonical, out var profile)) LoadProfile(profile);
+        else ApplyPreset(canonical);
+        return true;
+    }
+
+    public bool AddProfile(string name, bool duplicate)
+    {
+        name = name.Trim();
+        if (!IsProfileName(name) || ProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase)) return false;
+        ControllerProfiles[ControllerProfileName] = CaptureProfile();
+        ControllerProfileName = name;
+        if (!duplicate) ApplyPreset("Default");
+        ControllerProfiles[name] = CaptureProfile();
+        return true;
+    }
+
+    public bool RenameProfile(string name)
+    {
+        name = name.Trim();
+        if (!CanModifyProfileName || !IsProfileName(name) || ProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase)) return false;
+        ControllerProfiles.Remove(ControllerProfileName);
+        ControllerProfileName = name;
+        ControllerProfiles[name] = CaptureProfile();
+        return true;
+    }
+
+    public bool DeleteProfile()
+    {
+        if (!CanModifyProfileName) return false;
+        string deleted = ControllerProfileName;
+        SwitchProfile("Default");
+        ControllerProfiles.Remove(deleted);
+        return true;
+    }
+
+    public void ResetProfile() => ApplyPreset("Default");
+
+    internal void CopyProfilesFrom(AppConfig source)
+    {
+        ControllerProfileName = source.ControllerProfileName;
+        ControllerProfiles = new(source.ControllerProfiles, StringComparer.OrdinalIgnoreCase);
+        LoadProfile(source.CaptureProfile());
+    }
+
+    public static string DirectoryPath { get; } = DataFolder.Resolve(Environment.SpecialFolder.ApplicationData);
     public static string FilePath => Path.Combine(DirectoryPath, "config.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public static AppConfig Load()
     {
         try
         {
-            if (!File.Exists(FilePath)) return new AppConfig { ConfigVersion = CurrentVersion };
+            if (!File.Exists(FilePath)) return Fresh();
             return FromJson(File.ReadAllText(FilePath));
         }
         catch { return new AppConfig { ConfigVersion = CurrentVersion }; }
@@ -353,7 +614,7 @@ public sealed class AppConfig
     public static AppConfig FromJson(string json)
     {
         var c = JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
-        if (c.ConfigVersion < 5)
+        if (c.ConfigVersion <= 5)
         {
             // a layer missing from an older file meant "that version's default", which was the 1.3 pad layout, not today's Live DJ one
             try
@@ -361,10 +622,10 @@ public sealed class AppConfig
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
                 bool Has(string n) => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Object;
-                if (!Has(nameof(GamepadAxes))) c.GamepadAxes = PadAxes();
-                if (!Has(nameof(ShiftAxes))) c.ShiftAxes = PadShiftAxes();
-                if (!Has(nameof(GamepadButtons))) c.GamepadButtons = PadButtons();
-                if (!Has(nameof(ShiftButtons))) c.ShiftButtons = PadShiftButtons();
+                if (!Has(nameof(GamepadAxes))) c.GamepadAxes = c.ConfigVersion == 5 ? ClassicAxes() : PadAxes();
+                if (!Has(nameof(ShiftAxes))) c.ShiftAxes = c.ConfigVersion == 5 ? DefaultShiftAxes() : PadShiftAxes();
+                if (!Has(nameof(GamepadButtons))) c.GamepadButtons = c.ConfigVersion == 5 ? V5Buttons() : PadButtons();
+                if (!Has(nameof(ShiftButtons))) c.ShiftButtons = c.ConfigVersion == 5 ? V5ShiftButtons() : PadShiftButtons();
             }
             catch (JsonException) { }
         }

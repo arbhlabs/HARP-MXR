@@ -1,12 +1,11 @@
 namespace MixDock;
 
-/// <summary>Thread-safe file log at %LOCALAPPDATA%\MixDock\mixdock.log (rolls at 2 MB).</summary>
+/// <summary>Thread-safe file log at %LOCALAPPDATA%\HARP-MXR\harp-mxr.log (rolls at 2 MB).</summary>
 public static class Log
 {
     private static readonly object Gate = new();
-    public static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MixDock");
-    public static readonly string PathName = Path.Combine(Dir, "mixdock.log");
+    public static readonly string Dir = DataFolder.Resolve(Environment.SpecialFolder.LocalApplicationData);
+    public static readonly string PathName = Path.Combine(Dir, "harp-mxr.log");
 
     public static void Write(string msg)
     {

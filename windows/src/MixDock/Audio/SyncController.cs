@@ -108,11 +108,13 @@ public sealed class SyncController
         // live app decks (not song files) are forward-only: no replays, drift-corrected, crossfaded overflow
         for (int d = 0; d < 2; d++) { bool live = _d[d].Active && !_d[d].IsFile; if (_r[d].ForwardLive != live) _r[d].ForwardLive = live; }
         double dt = frames / Fs;
+        _quiet = false;
         if (_slave >= 0) { try { Lock(frames, dt); } catch (Exception ex) { Log.Write("sync lock: " + ex); } }
         else FreeRun();
         for (int d = 0; d < 2; d++)
         {
-            double step = Math.Min(0.0005, _slewPerSec[d] * dt);
+            bool fast = _quiet && d == _slave;
+            double step = Math.Min(fast ? 0.05 : 0.0005, (fast ? 4.0 : _slewPerSec[d]) * dt);
             _rate[d] += Math.Clamp(_tgt[d] - _rate[d], -step, step);
             if (_r[d].HistoryMode) _r[d].HistoryRate = _rate[d];
             Volatile.Write(ref _pubRate[d], _rate[d]);
@@ -135,7 +137,7 @@ public sealed class SyncController
             if (pl is not { Seeded: true }) continue;
             // sync was on: shrink the deep delay buffer back to normal (a slightly faster, key-locked catch-up)
             double lead = pl.Lead;
-            if (Math.Abs(_rate[d] - 1) < 5e-3 && lead > Fs * 0.28 && !_d[d].IsFile) _tgt[d] = 1.02;
+            if (Math.Abs(_rate[d] - 1) < 5e-3 && lead > Fs * 0.28 && lead < Fs * 5 && !_d[d].IsFile && !_r[d].Frozen) _tgt[d] = 1.02;
             else if (_tgt[d] == 1.02 && lead < Fs * 0.15) _tgt[d] = 1;
         }
     }
@@ -151,6 +153,7 @@ public sealed class SyncController
             Volatile.Write(ref _status, _waitFrames > 20 * Fs ? "SYNC: no steady beat found on one deck." : "SYNC: waiting for the beat…");
             Volatile.Write(ref _phaseMs, double.NaN); return;
         }
+        if (_r[s].Frozen || _r[m].Frozen) { Volatile.Write(ref _status, "SYNC waits while a deck is paused."); _lastRaw = double.NaN; return; }
         if (!_r[s].EnterHistory(KeyLock) || !_r[m].EnterHistory(KeyLock) || _r[s].Player is not { Seeded: true } ps || _r[m].Player is not { Seeded: true } pm) return;
 
         // ---- tempo: r_s / r_m = mult * Ps / Pm, with the multiple (1, 2, 1/2) that needs the smallest change
@@ -224,8 +227,11 @@ public sealed class SyncController
             else
             {
                 _needInitial = false; _acquire = false;
+                // A song deck nobody can hear yet may line up fast (about 40% speed change); once audible it only eases gently.
+                _quiet = _d[s].IsFile && Audible is { } audible && !audible(s);
+                double limit = _quiet ? 0.4 : 0.02, tau = _quiet ? 0.3 : 1.5;
                 _integ = Math.Clamp(_integ + eSec * dt / 9.0, -0.003, 0.003);
-                double corr = Math.Clamp(eSec / 1.5 + _integ, -0.02, 0.02);
+                double corr = Math.Clamp(eSec / tau + _integ, -limit, limit);
                 SetTargets(s, m, ts * (1 - corr), tm, ps, pm);
                 Volatile.Write(ref _status, a < 0.002 ? $"SYNC locked · {gm.Bpm * _rate[m]:F2} BPM" : $"SYNC locking… {eSec * 1000:+0.0;-0.0} ms");
             }
@@ -237,6 +243,9 @@ public sealed class SyncController
         MaintainLead(s, ps, gs, bar); MaintainLead(m, pm, gm, bar);
     }
 
+    private bool _quiet;
+    /// <summary>Whether a deck can be heard right now (null = always). Lets a silent song deck line up its beat quickly.</summary>
+    public Func<int, bool>? Audible { get; set; }
     private readonly bool[] _starved = new bool[2]; private bool _acquire;
     private double _relabel, _lastRaw = double.NaN, _lastW, _lastPs, _lastPm; private long _relabelFreeze; private int _relabels;
     /// <summary>Beat-grid re-labellings that were absorbed without moving the audio (live decks).</summary>
@@ -273,7 +282,7 @@ public sealed class SyncController
     /// <summary>Keeps a live deck's lead inside [LeadMin, LeadMax]; jumps exactly one bar (beat when bars are longer than 3.3 s) so the beat phase is unchanged.</summary>
     private void MaintainLead(int d, HistoryPlayer pl, TempoGrid g, bool barMode)
     {
-        if (_d[d].IsFile) return;
+        if (_d[d].IsFile || _r[d].Frozen) return;                    // a paused deck is buffering on purpose
         double lead = pl.Lead, rate = _tgt[d];
         double lo = LeadMinMs * Fs / 1000, hi = LeadMaxMs * Fs / 1000;
         bool soonLow = lead < lo + 0.6 * Fs && rate > 1 - 1e-5, soonHigh = lead > hi - 0.6 * Fs && rate < 1 + 1e-5;
@@ -293,6 +302,7 @@ public sealed class SyncController
         double delta = (soonLow || hardLow) ? -unit : unit;          // high: skip a bar. Low: live decks are held at real time instead (never replayed)
         if (delta < 0) return;
         if (delta > 0 && lead - delta < lo + 0.05 * Fs) return;
+        if (lead > hi + Fs) return;                                  // deep on purpose (resumed after a buffered pause): keep it
         if (delta < 0 && lead - delta > hi) return;
         pl.Jump(delta, (int)(JumpXfadeMs * Fs / 1000));
         _hold = (long)(0.12 * Fs);

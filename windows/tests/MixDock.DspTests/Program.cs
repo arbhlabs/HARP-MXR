@@ -32,6 +32,14 @@ static double Level(DeckParameters p, double hz)
 Assert(Level(new(Trim:1), 1000) > 0.1, "unity signal present");
 Assert(Level(new(LowDb:12, Trim:1), 60) > Level(new(LowDb:0, Trim:1), 60) * 2.5,
     "low shelf +12 dB boosts bass");
+foreach (int hz in new[] { 50, 120, 1000 })
+{
+    var flat = Level(new(Trim:1), hz);
+    var cutDb = 20 * Math.Log10(Level(new(Trim:1, BassCut:true), hz) / flat);
+    var killDb = 20 * Math.Log10(Level(new(Trim:1, LowKill:true), hz) / flat);
+    bool withinRange = hz switch { 50 => cutDb is > -24 and < -20, 120 => Math.Abs(cutDb + 12) < .2, _ => Math.Abs(cutDb) < .1 };
+    Assert(withinRange, $"Controller bass cut at {hz} Hz: {cutDb:F2} dB, full kill {killDb:F2} dB");
+}
 Assert(Level(new(MidDb:12, Trim:1), 1000) > Level(new(MidDb:0, Trim:1), 1000) * 2.5,
     "mid peak +12 dB boosts mids");
 Assert(Level(new(HighDb:12, Trim:1), 12000) > Level(new(HighDb:0, Trim:1), 12000) * 2.5,
@@ -235,6 +243,12 @@ Assert(Math.Abs(Level(new(Filter:-0.501, Trim:1), 3000) - Level(new(Filter:-0.5,
     Assert(MixDock.Platform.OutputPolicy.Pick(new List<MixDock.Platform.OutputEndpoint> { devs[0], devs[1] }, null, "c") == null, "only virtual devices: no output chosen");
 }
 
+// Controller XY side blend. Pure Y leaves the filter isolated; left and right address different sends.
+Assert(FxCurves.SideBlend(0, 1) == (0d, 0d), "vertical filter sweep has no edge FX");
+Assert(FxCurves.SideBlend(-1, 0) == (1d, 0d) && FxCurves.SideBlend(1, 0) == (0d, 1d), "full sides address reverb and echo separately");
+Assert(FxCurves.SideBlend(.12, .1) == (0d, 0d), "resting stick is dry");
+var diagonalBlend = FxCurves.SideBlend(.7071, .7071);
+Assert(diagonalBlend.Left == 0 && Math.Abs(diagonalBlend.Right - .7071) < .001, "diagonal mixes filter with a partial FX send");
 // ---------------- look-ahead delay line, pause freeze / resume, left-stick FX blend ----------------
 {
     var ringL = new SampleRing(44100 * 34);
@@ -268,5 +282,9 @@ Assert(Math.Abs(Level(new(Filter:-0.501, Trim:1), 3000) - Level(new(Filter:-0.5,
     Assert(FxCurves.SideBlend(.1, 0) == (0, 0) && FxCurves.SideBlend(-.15, .1) == (0, 0), "FX blend: deadzone returns cleanly to dry");
 }
 
+if (args.Contains("--automix-only")) { AutoMixRenderChecks.Run((ok, name) => Assert(ok, name)); return; }
+FxRackChecks.Run(Assert, args);
+OggTests.Run((ok, name) => Assert(ok, name));
 ForwardClockChecks.Run(Assert, args.Contains("--live-clock-soak"));
+AutoMixRenderChecks.Run((ok, name) => Assert(ok, name));
 Console.WriteLine($"ALL {count} TESTS PASSED");

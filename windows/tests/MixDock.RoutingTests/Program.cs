@@ -113,6 +113,7 @@ Console.WriteLine("--- sink protection");
 }
 
 try { Directory.Delete(tmp, true); } catch { }
+DeckBrowserTests.Run((ok, name, detail) => Check(ok, name, detail));
 Console.WriteLine($"=== {passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;
 

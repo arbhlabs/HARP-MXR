@@ -20,7 +20,16 @@ internal static class Program
             Application.Run(new MainForm(true));
             return MainForm.UiCheckExitCode;
         }
-        Log.Write("MixDock start");
+        int shot = Array.IndexOf(args, "--shot");
+        if (shot >= 0 && shot + 1 < args.Length && args.Contains("--ui-preview"))
+        {
+            MainForm.ShotPath = Path.GetFullPath(args[shot + 1]);
+            MainForm.UiCheckDirectory = Path.ChangeExtension(MainForm.ShotPath, ".checks");
+            ApplicationConfiguration.Initialize();
+            Application.Run(new MainForm(true));
+            return MainForm.UiCheckExitCode;
+        }
+        Log.Write("HARP//MXR start");
         { int si = Array.IndexOf(args, "--shot"); if (si >= 0 && si + 1 < args.Length) MainForm.ShotPath = args[si + 1]; MainForm.ShotAutoMix = args.Contains("--automix"); { int sk = Array.IndexOf(args, "--soak"); if (sk >= 0 && sk + 1 < args.Length) MainForm.ShotSoak = int.Parse(args[sk + 1]); } { int so = Array.IndexOf(args, "--song"); if (so >= 0 && so + 1 < args.Length) MainForm.ShotSong = args[so + 1]; } int ai = Array.IndexOf(args, "--app"); if (ai >= 0 && ai + 1 < args.Length) MainForm.ShotApp = args[ai + 1]; } Audio.AppRedirect.ClearSelf();
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);

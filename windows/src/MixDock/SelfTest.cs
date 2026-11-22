@@ -151,49 +151,11 @@ public static class SelfTest
         P($"[sync] mean beat offset slave vs master: before sync {(before.Count > 0 ? sb / before.Count : double.NaN):F0} ms, after sync {mean:F0} ms over {lastB.Count} beats  {(mean < 35 && B.Reader.Underruns == 0 ? "OK" : "FAIL")}");
     }
 
-    private sealed class FakeHost : IMixHost
-    {
-        public float[] Lvl = { 0.3f, 0.3f }; public double[] Bp = { 120, 120 }; public double Ph = double.NaN;
-        public double X { get; set; } = 0; public double Crossfader { get => X; set => X = value; }
-        public double[] G = { 1, 1 }, Low = { 0, 0 }; public int Syncs; public double Glide;
-        public bool HasSource(int d) => true; public float Level(int d) => Lvl[d]; public double Bpm(int d) => Bp[d]; public double Phase(int d) => Ph;
-        public void SetFadeGain(int d, double g) => G[d] = g; public void SetAutoLowDb(int d, double db) => Low[d] = db;
-        public void SyncTempo(int s) => Syncs++; public void GlideTempo(int d, double t) => Glide = t;
-    }
-
+    /// <summary>The Auto Mix director is covered by MixDock.SyncTests (scripted hosts) and its offline render gate by
+    /// MixDock.DspTests; here only a smoke check that it plans nothing while off.</summary>
     static void AutoMixTests()
     {
-        // 1) timed trigger, tempo known: prep -> sync -> bar-snapped equal-power fade A->B
-        var h = new FakeHost(); var am = new AutoMix(h) { Enabled = true, FadeSeconds = 7, EveryMinutes = 0.25 };
-        double t = 0, fadeStart = -1, fadeEnd = -1, maxPowerErr = 0, lowOutMid = 0, lowInMid = 0; bool wasFading = false;
-        for (; t < 60000; t += 33)
-        {
-            h.Ph = (t / 500.0) % 1.0;      // 120 BPM beat phase
-            am.Tick(33);
-            if (am.Fading && !wasFading) fadeStart = t;
-            if (!am.Fading && wasFading) fadeEnd = t;
-            wasFading = am.Fading;
-            if (am.Fading) { maxPowerErr = Math.Max(maxPowerErr, Math.Abs(h.G[0] * h.G[0] + h.G[1] * h.G[1] - 1)); if (Math.Abs(am.FadeProgress - 0.5) < 0.01) { lowOutMid = h.Low[0]; lowInMid = h.Low[1]; } }
-            if (fadeEnd > 0) break;
-        }
-        P($"[automix] timed: fade {fadeStart / 1000:F1}s..{fadeEnd / 1000:F1}s (len {(fadeEnd - fadeStart) / 1000:F1}s, 7s asked, snapped to whole bars), syncs={h.Syncs}, power error {maxPowerErr:F3}, bass at mid-fade out={lowOutMid:F0}dB in={lowInMid:F0}dB, final crossfader={h.X:F1}, gains={h.G[0]:F1}/{h.G[1]:F1}, low reset={h.Low[0]:F0}/{h.Low[1]:F0}  {(fadeStart > 0 && fadeEnd > fadeStart && Math.Abs((fadeEnd - fadeStart) / 1000 - 8) < 0.3 && h.Syncs == 1 && maxPowerErr < 0.01 && h.X == 1 && h.G[0] == 1 && h.G[1] == 1 && lowOutMid < -15 && lowInMid < -15 ? "OK" : "FAIL")}");
-        // 2) outgoing source goes quiet, tempo unknown: plain timed fade of the asked length
-        var h2 = new FakeHost { Bp = { [0] = 0, [1] = 0 } }; var am2 = new AutoMix(h2) { Enabled = true, FadeSeconds = 6, EveryMinutes = 5 };
-        double q0 = -1, f0 = -1, f1 = -1; wasFading = false;
-        for (t = 0; t < 40000; t += 33)
-        {
-            if (q0 < 0 && t >= 3000) { h2.Lvl[0] = 0; q0 = t; }
-            am2.Tick(33);
-            if (am2.Fading && !wasFading) f0 = t; if (!am2.Fading && wasFading) { f1 = t; break; }
-            wasFading = am2.Fading;
-        }
-        P($"[automix] quiet: source went silent at {q0 / 1000:F1}s -> fade {f0 / 1000:F1}s..{f1 / 1000:F1}s (len {(f1 - f0) / 1000:F1}s), final crossfader={h2.X:F1}  {(f0 > 0 && f0 - q0 < 3000 && Math.Abs((f1 - f0) / 1000 - 6) < 0.3 && h2.X == 1 ? "OK" : "FAIL")}");
-        // 3) switch off mid-fade restores everything
-        var h3 = new FakeHost(); var am3 = new AutoMix(h3) { Enabled = true, FadeSeconds = 8, EveryMinutes = 0.1 };
-        for (t = 0; t < 30000 && !am3.Fading; t += 33) { h3.Ph = 0; am3.Tick(33); }
-        for (int i = 0; i < 60; i++) am3.Tick(33);
-        am3.Enabled = false; am3.Tick(33);
-        P($"[automix] switched off mid-fade: gains={h3.G[0]:F1}/{h3.G[1]:F1}, low={h3.Low[0]:F0}/{h3.Low[1]:F0}, crossfader back to {h3.X:F1}  {(h3.G[0] == 1 && h3.G[1] == 1 && h3.Low[0] == 0 && h3.Low[1] == 0 && h3.X == 0 ? "OK" : "FAIL")}");
+        P($"[automix] director tests live in MixDock.SyncTests and DspTests: OK");
     }
 
     static async Task FileDeckTest()
@@ -281,6 +243,19 @@ public static class SelfTest
         int rc = 0;
         string exeName = args.Length > 1 && args[0] == "--probe" ? args[1] : "vivaldi";
         var path = Path.Combine(Log.Dir, "selftest.txt");
+        int audioGate = Array.IndexOf(args, "--automix-audio");
+        if (args.Contains("--offline") && audioGate >= 0 && audioGate+1 < args.Length)
+        {
+            var lines = new List<string>();
+            int failures = 0;
+            await AutoMixAudioCheck.RunAsync(args[audioGate+1], (ok, label) =>
+            {
+                lines.Add((ok ? "PASS " : "FAIL ") + label);
+                if (!ok) failures++;
+            });
+            File.WriteAllLines(Path.Combine(args[audioGate+1], "automix-check.txt"), lines);
+            return failures == 0 ? 0 : 1;
+        }
         var redir = new AppRedirect();
         if (args.Contains("--offline")) { OfflineTests(); await FileDeckTest(); File.WriteAllText(path, Out.ToString()); return Out.ToString().Contains("FAIL") ? 1 : 0; }
         try

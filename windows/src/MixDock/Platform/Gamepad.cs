@@ -2,20 +2,26 @@ using System.Runtime.InteropServices;
 
 namespace MixDock.Platform;
 
+/// <summary>Controller buttons. The low 16 bits are XInput's own; Extra1..Extra8 are inputs XInput does not report
+/// (back paddles, extra top buttons) read through Windows.Gaming.Input (see <see cref="ExtraButtons"/>).</summary>
 [Flags]
-public enum PadButton : ushort
+public enum PadButton : uint
 {
     Up = 0x0001, Down = 0x0002, Left = 0x0004, Right = 0x0008,
     Start = 0x0010, Back = 0x0020, LeftThumb = 0x0040, RightThumb = 0x0080,
     LeftShoulder = 0x0100, RightShoulder = 0x0200,
-    A = 0x1000, B = 0x2000, X = 0x4000, Y = 0x8000
+    A = 0x1000, B = 0x2000, X = 0x4000, Y = 0x8000,
+    Extra1 = 0x10000, Extra2 = 0x20000, Extra3 = 0x40000, Extra4 = 0x80000,
+    Extra5 = 0x100000, Extra6 = 0x200000, Extra7 = 0x400000, Extra8 = 0x800000,
 }
 [StructLayout(LayoutKind.Sequential)]
 public struct XInputGamepad
 {
-    public PadButton Buttons;
+    /// <summary>XInput's 16-bit button word. Must stay 2 bytes: the triggers and sticks follow it in the native struct.</summary>
+    public ushort RawButtons;
     public byte LeftTrigger, RightTrigger;
     public short LeftThumbX, LeftThumbY, RightThumbX, RightThumbY;
+    public PadButton Buttons { readonly get => (PadButton)RawButtons; set => RawButtons = (ushort)((uint)value & 0xFFFF); }
 }
 [StructLayout(LayoutKind.Sequential)]
 public struct XInputState
@@ -25,6 +31,68 @@ public struct XInputState
 }
 [StructLayout(LayoutKind.Sequential)]
 public struct XInputVibration { public ushort Left, Right; }
+
+public enum PadRole { Mixer = 0, FxPad = 1 }
+
+/// <summary>Raw (Windows.Gaming.Input) buttons -> Extra1..Extra8. Pure; unit-tested.</summary>
+public static class ExtraButtonLogic
+{
+    /// <summary>Raw buttons 0-9 of an Xbox-layout controller are A B X Y LB RB View Menu L3 R3; raw 10+ map to Extra1+.</summary>
+    public const int StandardCount = 10, MaxExtra = 8;
+    /// <summary>The first press of a raw button is held back one poll: if an XInput button went down with it (now or on the
+    /// next poll) it is a duplicate of a standard button (a paddle the firmware maps to A, say) and ignored from then on;
+    /// otherwise it is confirmed as an extra input.</summary>
+    public static PadButton Classify(bool[] buttons, bool[] previous, HashSet<int> aliases, HashSet<int> confirmed, ref int pending, ref PadButton lastXInput, PadButton xinput)
+    {
+        var gained = xinput & ~lastXInput & (PadButton)0xFFFF;
+        if (pending >= 0) { if (gained != 0) aliases.Add(pending); else confirmed.Add(pending); pending = -1; }
+        PadButton extra = 0;
+        for (int i = StandardCount; i < buttons.Length && i - StandardCount < MaxExtra; i++)
+        {
+            bool down = buttons[i], was = previous[i];
+            if (down && !was && !aliases.Contains(i) && !confirmed.Contains(i))
+            {
+                if (gained != 0) aliases.Add(i); else pending = i;
+            }
+            if (down && confirmed.Contains(i)) extra |= (PadButton)((uint)PadButton.Extra1 << (i - StandardCount));
+            previous[i] = down;
+        }
+        lastXInput = xinput;
+        return extra;
+    }
+}
+
+/// <summary>Which XInput slot is controller 1 (mixer) and which is controller 2 (FX pad). Pure, unit-tested.</summary>
+public static class ControllerRoles
+{
+    /// <summary>
+    /// - A pad that disconnects frees its role; the other pad keeps its role (nothing is re-routed).
+    /// - Roles are only (re)decided when a pad arrives. One pad connected: it is the mixer.
+    /// - Two or more: the pad matching <paramref name="fxPadDevice"/> is the FX pad, one matching <paramref name="mixerDevice"/>
+    ///   the mixer; otherwise existing roles stay and a newcomer takes the free role (mixer first). Ties go to the lower slot.
+    /// </summary>
+    public static int[] Assign(bool[] connected, string?[] ids, int[] previous, string fxPadDevice, string mixerDevice, bool arrived)
+    {
+        var roles = new int[connected.Length];
+        for (int i = 0; i < roles.Length; i++) roles[i] = connected[i] && i < previous.Length ? previous[i] : -1;
+        if (!arrived) return roles;
+        var on = Enumerable.Range(0, connected.Length).Where(i => connected[i]).ToList();
+        if (on.Count == 0) return roles;
+        bool Is(int i, string want) => want.Length > 0 && string.Equals(ids[i], want, StringComparison.OrdinalIgnoreCase);
+        if (on.Count == 1) { if (roles[on[0]] < 0) roles[on[0]] = (int)PadRole.Mixer; return roles; }
+        int Holder(PadRole r) => on.FirstOrDefault(i => roles[i] == (int)r, -1);
+        var fxMatch = on.Where(i => Is(i, fxPadDevice)).ToList();
+        var mixMatch = on.Where(i => Is(i, mixerDevice)).ToList();
+        int fx = fxMatch.Count == 1 ? fxMatch[0] : -1;
+        int mix = mixMatch.Count == 1 && mixMatch[0] != fx ? mixMatch[0] : -1;
+        if (mix < 0) { int h = Holder(PadRole.Mixer); if (h >= 0 && h != fx) mix = h; }
+        if (fx < 0) { int h = Holder(PadRole.FxPad); if (h >= 0 && h != mix) fx = h; }
+        if (mix < 0) mix = on.FirstOrDefault(i => i != fx, -1);
+        if (fx < 0) fx = on.FirstOrDefault(i => i != mix, -1);
+        for (int i = 0; i < roles.Length; i++) roles[i] = i == mix ? (int)PadRole.Mixer : i == fx ? (int)PadRole.FxPad : -1;
+        return roles;
+    }
+}
 
 /// <summary>Processed, drift-free controller frame. Sticks use a radial deadzone with rescale.</summary>
 public readonly record struct PadFrame(double LX, double LY, double RX, double RY, double LT, double RT, PadButton Buttons);
@@ -38,37 +106,112 @@ public static class Gamepad
     [DllImport("xinput1_4.dll", EntryPoint = "XInputSetState", ExactSpelling = true)]
     private static extern uint SetStateNative(uint index, ref XInputVibration vib);
 
-    private static int _slot = -1;            // hot-plug: first connected slot 0..3
-    private static long _nextScanTick;
+    // ---- two controllers: every connected XInput slot is read; each role (mixer, FX pad) owns at most one slot and keeps it
+    // until that pad disconnects, so unplugging one never re-routes the other. Assignment is by device identity (VID:PID).
+    private static readonly XInputState[] _states = new XInputState[4];
+    private static readonly bool[] _connected = new bool[4];
+    private static readonly string[] _ids = new string[4];
+    private static int[] _roles = { -1, -1, -1, -1 };
+    private static long _nextScanTick, _lastPoll = -1;
+    /// <summary>Identity preferences (from config): this device is the FX pad / the mixer whenever two pads are connected.</summary>
+    public static string FxPadDevice = "045E:0B13", MixerDevice = "";
+    /// <summary>Reads controller identity for a slot ("VID:PID"); replaceable in tests.</summary>
+    public static Func<int, string> IdentitySource = SlotIdentity;
 
-    public static int Slot => _slot;
-
-    /// <summary>Reads the active controller; rescans all 4 XInput slots (throttled) after a disconnect.</summary>
-    public static bool Read(out XInputState state)
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CapabilitiesEx
     {
-        state = default;
-        try
+        public byte Type, SubType; public ushort Flags;
+        public XInputGamepad Gamepad; public XInputVibration Vibration;
+        public ushort VendorId, ProductId, VersionNumber, Unknown1; public uint Unknown2;
+    }
+    [DllImport("xinput1_4.dll", EntryPoint = "#108")]
+    private static extern uint GetCapabilitiesEx(uint unknown, uint index, uint flags, out CapabilitiesEx caps);
+    /// <summary>"VID:PID" of an XInput slot (undocumented XInputGetCapabilitiesEx, as SDL uses it); "" when unknown.</summary>
+    public static string SlotIdentity(int slot)
+    {
+        try { return GetCapabilitiesEx(1, (uint)slot, 0, out var c) == 0 ? $"{c.VendorId:X4}:{c.ProductId:X4}" : ""; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return ""; }
+    }
+    /// <summary>Extra (non-XInput) buttons of a slot; set by the app (Windows.Gaming.Input), null = none.</summary>
+    public static Func<int, string, PadButton, PadButton>? ExtraSource;
+    /// <summary>XInput reader; replaceable in tests (slot, out state) → connected.</summary>
+    public static Func<int, (bool Ok, XInputState State)> StateSource = slot =>
+    {
+        try { return (GetStateNative((uint)slot, out var s) == 0, s); }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return (false, default); }
+    };
+
+    public static int Slot => SlotOf(PadRole.Mixer);
+    public static int SlotOf(PadRole role) => Array.IndexOf(_roles, (int)role);
+    public static string IdentityOf(PadRole role) { int s = SlotOf(role); return s >= 0 ? _ids[s] ?? "" : ""; }
+    public static int ConnectedCount => _connected.Count(c => c);
+
+    /// <summary>Re-reads every assigned or connected slot (at most once per millisecond tick); empty slots are probed once a second
+    /// because XInputGetState on an empty slot is slow.</summary>
+    public static void Poll(bool force = false)
+    {
+        long now = Environment.TickCount64;
+        if (!force && now == _lastPoll) return;
+        _lastPoll = now;
+        bool scan = force || now >= _nextScanTick, arrived = false;
+        if (scan) _nextScanTick = now + 1000;
+        for (int i = 0; i < 4; i++)
         {
-            if (_slot >= 0 && GetStateNative((uint)_slot, out state) == 0) return true;
-            _slot = -1;
-            long now = Environment.TickCount64;
-            if (now < _nextScanTick) return false;
-            _nextScanTick = now + 1000; // XInputGetState on empty slots is slow; scan at most 1/s
-            for (uint i = 0; i < 4; i++)
-                if (GetStateNative(i, out state) == 0) { _slot = (int)i; return true; }
-            return false;
+            if (!_connected[i] && !scan) continue;
+            var (ok, st) = StateSource(i);
+            if (ok && !_connected[i]) { _ids[i] = IdentitySource(i); arrived = true; }
+            _connected[i] = ok; _states[i] = ok ? st : default;
         }
-        catch (DllNotFoundException) { return false; }
-        catch (EntryPointNotFoundException) { return false; }
+        _roles = ControllerRoles.Assign(_connected, _ids, _roles, FxPadDevice, MixerDevice, arrived);
     }
 
-    public static void Rumble(double left, double right)
+    /// <summary>Controller 1 (the mixer).</summary>
+    public static bool Read(out XInputState state) => Read(PadRole.Mixer, out state);
+    public static bool Read(PadRole role, out XInputState state)
     {
-        if (_slot < 0) return;
+        Poll();
+        int s = SlotOf(role);
+        state = s >= 0 ? _states[s] : default;
+        return s >= 0;
+    }
+    /// <summary>Processed frame of a role, including extra buttons (paddles) when the app provides them.</summary>
+    public static bool ReadFrame(PadRole role, out PadFrame frame, out XInputState state)
+    {
+        frame = default;
+        if (!Read(role, out state)) return false;
+        frame = Process(state.Gamepad);
+        int s = SlotOf(role);
+        if (ExtraSource != null && s >= 0)
+        {
+            try { frame = frame with { Buttons = frame.Buttons | (ExtraSource(s, _ids[s] ?? "", frame.Buttons) & ExtraMask) }; } catch { }
+        }
+        return true;
+    }
+    public const PadButton ExtraMask = (PadButton)0xFF0000;
+
+    /// <summary>Swap mixer and FX pad (both connected): remembers the identities so the choice sticks.</summary>
+    public static bool SwapRoles()
+    {
+        int m = SlotOf(PadRole.Mixer), f = SlotOf(PadRole.FxPad);
+        if (m < 0 || f < 0) return false;
+        _roles[m] = (int)PadRole.FxPad; _roles[f] = (int)PadRole.Mixer;
+        if (!string.Equals(_ids[m], _ids[f], StringComparison.OrdinalIgnoreCase)) { FxPadDevice = _ids[m] ?? ""; MixerDevice = _ids[f] ?? ""; }
+        return true;
+    }
+
+    /// <summary>Test hook: forget all slots.</summary>
+    public static void ResetForTests() { Array.Clear(_connected); Array.Clear(_ids); _roles = new[] { -1, -1, -1, -1 }; _nextScanTick = 0; _lastPoll = -1; }
+
+    public static void Rumble(double left, double right) => Rumble(PadRole.Mixer, left, right);
+    public static void Rumble(PadRole role, double left, double right)
+    {
+        int slot = SlotOf(role);
+        if (slot < 0) return;
         try
         {
             var v = new XInputVibration { Left = (ushort)(Math.Clamp(left, 0, 1) * 65535), Right = (ushort)(Math.Clamp(right, 0, 1) * 65535) };
-            SetStateNative((uint)_slot, ref v);
+            SetStateNative((uint)slot, ref v);
         }
         catch { }
     }

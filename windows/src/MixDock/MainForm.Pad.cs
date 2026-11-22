@@ -45,6 +45,7 @@ public sealed partial class MainForm
     private void InitPad()
     {
         _padMapper = _config.CreatePadMapper();
+        InitStickFx();
         _filters[0].Load(_config.A.FilterLatch ?? _config.A.Filter);
         _filters[1].Load(_config.B.FilterLatch ?? _config.B.Filter);
         for (int d = 0; d < 2; d++)
@@ -75,10 +76,10 @@ public sealed partial class MainForm
     private void PlaceOverlay()
     {
         if (_overlay is null) return;
-        float s = DeviceDpi / 96f;
+        float s = _dj?.ScaleFactor ?? DeviceDpi / 96f;
         int w = Math.Min(ClientSize.Width - (int)(48 * s), (int)(PadOverlay.DesignSize.Width * s));
         int h = Math.Min(ClientSize.Height - (int)(160 * s), (int)(PadOverlay.DesignSize.Height * s));
-        _overlay.SetBounds((ClientSize.Width - w) / 2, (int)(96 * s), w, h);
+        _overlay.SetBounds((ClientSize.Width - w) / 2, Math.Max(0, (ClientSize.Height - h) / 2), w, h);
     }
     private void ToggleOverlay()
     {
@@ -137,12 +138,22 @@ public sealed partial class MainForm
         long nowMs = Environment.TickCount64;
         RunScheduled(nowMs);
         ClockTick(nowMs);
-        if (!_padEnabled.Checked) { _padMapper.Reset(0); _padStatus.Text = "●  Disabled"; return; }
-        bool connected = Gamepad.Read(out var state);
+        _rig.Begin(); _stickSeen.Clear();
+        try { PollControllers(nowMs); }
+        finally { PublishRacks(nowMs); }
+    }
+
+    /// <summary>Controller 2 (FX pad) first, so its trigger amounts are ready when controller 1's axes are processed.</summary>
+    private void PollControllers(long nowMs)
+    {
+        if (!_padEnabled.Checked) { _padMapper.Reset(0); _fxMapper.Reset(0); _padStatus.Text = "●  Disabled"; return; }
+        Gamepad.Poll();
+        bool fxPad = PollFxPad(nowMs);
+        bool connected = Gamepad.ReadFrame(PadRole.Mixer, out var frame, out var state);
         if (connected != _padWasConnected)
         {
             foreach (var drv in _axisDrivers.Values) drv.Reset();
-            _padMapper.Reset(connected ? state.Gamepad.Buttons : 0); // no phantom presses on (re)connect
+            _padMapper.Reset(connected ? frame.Buttons : 0); // no phantom presses on (re)connect
             _padWasConnected = connected;
             if (!connected) { ReleaseHeldGestures(); SetMessage("Controller disconnected: held moves were released."); }
             if (connected)
@@ -152,61 +163,82 @@ public sealed partial class MainForm
                 if (_padSeenOnce || string.IsNullOrWhiteSpace(_message.Text)) SetMessage(PadHints.Connected(Gamepad.Slot + 1));
                 _padSeenOnce = true;
             }
-            _hintShift = false;
+            _mapMenuSince = -1;
+            _mapMenuArmed = false;
         }
         if (!connected)
         {
-            _padStatus.Text = "●  Not connected"; _padStatus.ForeColor = Theme.Muted;
+            _padStatus.Text = fxPad ? $"●  Controller 1 not connected · FX pad {Gamepad.SlotOf(PadRole.FxPad) + 1} {FxRig.TargetName(_rig.Target)}" : "●  Not connected";
+            _padStatus.ForeColor = Theme.Muted;
             if (_overlay.Visible) _overlay.SetState(default, false, false, _focus);
+            // the FX pad still plays its triggers through the axis path when controller 1 is away
+            if (fxPad && !_bindingsOpen) ProcessAxes(default, Math.Clamp(_padClock.Elapsed.TotalSeconds, 0.001, 0.1), nowMs);
+            _padClock.Restart();
             return;
         }
         if (_bindingsOpen)
         {
             // mapping editor open: the controller only points at rows there; nothing fires here (and no phantom press on close)
-            _padMapper.Reset(state.Gamepad.Buttons);
+            _padMapper.Reset(frame.Buttons);
             _padStatus.Text = "●  Controller: mapping editor open"; return;
         }
         _padStatus.ForeColor = _focus == 0 ? Theme.Cyan : Theme.Amber;
-        var frame = Gamepad.Process(state.Gamepad);
+        if (MappingHold(frame, nowMs))
+        {
+            _padMapper.Reset(frame.Buttons);
+            OpenMappings();
+            _padMapper.Reset(Gamepad.ReadFrame(PadRole.Mixer, out var current, out _) ? current.Buttons : 0);
+            return;
+        }
         _lastFrame = frame;
         double dt = Math.Clamp(_padClock.Elapsed.TotalSeconds, 0.001, 0.1); _padClock.Restart();
         PadBankTick(frame, state.Gamepad.Buttons);
         ProcessAxes(frame, dt, nowMs);
-        foreach (var ev in _padMapper.Update(state.Gamepad.Buttons, nowMs))
+        foreach (var ev in _padMapper.Update(frame.Buttons, nowMs))
         {
             if (ev.Kind == PadEventKind.Panic) { Panic(); continue; }
+            if (ev.Kind is PadEventKind.PreviousProfile or PadEventKind.NextProfile)
+            {
+                CycleControllerProfile(ev.Kind == PadEventKind.NextProfile ? 1 : -1, frame.Buttons);
+                break;
+            }
             Dispatch(ev.Action, ev.Kind != PadEventKind.Release, ev.Kind == PadEventKind.Repeat);
             if (ev.Kind == PadEventKind.Press && !ev.Action.Contains("Pad")) RumblePulse(.18, 35);   // pad hits rumble by their velocity instead
+            if (ev.Kind == PadEventKind.Press) ActionToast(PadRole.Mixer, ev);
         }
         BeatTick(frame);
-        ShowShiftHint(_padMapper.Shift);
-        _padStatus.Text = $"●  Pad {Gamepad.Slot + 1}  {(_padMapper.Shift ? "SHIFT  " : "")}Deck {DeckName(_focus)}  L {Arrow(frame.LX, frame.LY)}  R {Arrow(frame.RX, frame.RY)}";
+        _padStatus.Text = $"●  Pad {Gamepad.Slot + 1}{(fxPad ? $" + FX pad {Gamepad.SlotOf(PadRole.FxPad) + 1}" : "")}  {(_padMapper.Shift ? "SHIFT  " : "")}Deck {DeckName(_focus)}  L {Arrow(frame.LX, frame.LY)}  R {Arrow(frame.RX, frame.RY)}";
         if (_overlay.Visible) _overlay.SetState(frame, _padMapper.Shift, true, _focus);
     }
 
-    private bool _hintShift, _padSeenOnce;
+    private bool _padSeenOnce;
+    private long _mapMenuSince = -1;
+    private bool _mapMenuArmed;
     private int _nudgeRepeats;
-    private readonly double[] _blendEcho = new double[2], _blendVerb = new double[2];
-    private string? _messageBeforeHint, _shownHint;
 
-    /// <summary>While SHIFT is held the footer shows what every button does in the current bank; on release the
-    /// previous message comes back unless something else replaced the hint meanwhile.</summary>
-    private void ShowShiftHint(bool shift)
+    // A solo long press leaves normal taps and performance chords intact. If Menu
+    // is the configured Shift button, View is the editor shortcut instead.
+    private bool MappingHold(PadFrame frame, long nowMs)
     {
-        if (shift == _hintShift) return;
-        _hintShift = shift;
-        if (shift)
+        var shortcut = string.Equals(_config.ShiftButton, "Start", StringComparison.OrdinalIgnoreCase) ? PadButton.Back : PadButton.Start;
+        if (frame.Buttons == 0) _mapMenuArmed = true;
+        bool still = frame.LX == 0 && frame.LY == 0 && frame.RX == 0 && frame.RY == 0 && frame.LT == 0 && frame.RT == 0;
+        if (frame.Buttons != shortcut || !still)
         {
-            _messageBeforeHint = _message.Text;
-            _shownHint = PadHints.For(true, _config.ShiftButtons);
-            SetMessage(_shownHint);
+            _mapMenuSince = -1;
+            if (frame.Buttons != 0) _mapMenuArmed = false;
+            return false;
         }
-        else if (_shownHint != null && _message.Text == _shownHint)
-        {
-            SetMessage(_messageBeforeHint ?? "");
-            _shownHint = null;
-        }
+        if (!_mapMenuArmed) return false;
+        if (_mapMenuSince < 0) _mapMenuSince = nowMs;
+        if (nowMs - _mapMenuSince < 900) return false;
+        _mapMenuArmed = false;
+        _mapMenuSince = -1;
+        return true;
     }
+
+    private readonly double[] _appliedLeftReverb = new double[2];
+    private readonly double[] _blendEcho = new double[2], _blendVerb = new double[2];
 
     private void ProcessAxes(PadFrame frame, double dt, long nowMs)
     {
@@ -254,6 +286,10 @@ public sealed partial class MainForm
                 case "FxX" or "FxY":
                     // XY pad: both stick axes are used together (no axis lock); the deck focused when the gesture started keeps it
                     fxPad = true; if (deck is int pd) fxDeck = pd;
+                    break;
+                case "SetPadX" or "SetPadY" or "SetPad2X" or "SetPad2Y" or "SetSide" when deck is int sd:
+                    // stick FX sets: 4 effects on a stick (direction picks, distance = amount), 2 on one axis
+                    MixerStickFx(axis, ctl, sd, frame, nowMs);
                     break;
                 case "TimeBend" when deck is int d:
                 {
@@ -310,6 +346,13 @@ public sealed partial class MainForm
                 case "Riser": riser = 1; break;
             }
         }
+        // ---- controller 2 (FX pad) triggers: echo throw, brake depth, reverse, riser build on its target deck(s)
+        for (int d = 0; d < 2; d++)
+        {
+            throwAmt[d] = Math.Max(throwAmt[d], _fxThrow[d]); bend[d] = Math.Max(bend[d], _fxBend[d]);
+            reverse[d] |= _fxReverse[d];
+        }
+        riser = Math.Max(riser, _fxRiser);
 
         // ---- Chord bank: the right stick shapes the chord (X inversion, Y voicing) instead of driving the FX pad; Shift+stick is still the FX pad
         if (ModeOf(_bank) == BankMode.Chord && !shift)
@@ -333,8 +376,6 @@ public sealed partial class MainForm
             _blendEcho[d] += (blendR[d] - _blendEcho[d]) * kb; if (_blendEcho[d] < 1e-3) _blendEcho[d] = 0;
             _blendVerb[d] += (blendL[d] - _blendVerb[d]) * kb; if (_blendVerb[d] < 1e-3) _blendVerb[d] = 0;
             send[d] = Math.Max(send[d], _blendEcho[d]);
-            if (_blendEcho[d] > .05) AnnounceMove($"FX BLEND · ECHO {_blendEcho[d] * 100:0}%", d);
-            else if (_blendVerb[d] > .05) AnnounceMove($"FX BLEND · REVERB {_blendVerb[d] * 100:0}%", d);
         }
         for (int d = 0; d < 2; d++)
         {
@@ -342,7 +383,8 @@ public sealed partial class MainForm
             long stamp = System.Diagnostics.Stopwatch.GetTimestamp();
             double a = fxAmt[d];
             // the right-stick pad wins; when it rests, the left-stick blend drives the reverb
-            bool verb = _blendVerb[d] > a;
+            bool verb = a <= 0 && _blendVerb[d] > 0;
+            _appliedLeftReverb[d] = verb && !_mouseFxHeld[d] && !_mouseFreeze[d] ? _blendVerb[d] : 0;
             if(!_mouseFxHeld[d]&&!_mouseFreeze[d]) _engine.Mixer.Fx(d).State = verb
                 ? new PerformanceFx.Controls(PadFx.Reverb, _blendVerb[d], .7, .5, bpmD, phD, _fxFreeze, _config.FxSmoothMs, stamp)
                 : new PerformanceFx.Controls(_fx, a, x01, y01, bpmD, phD, _fxFreeze, _config.FxSmoothMs, stamp);
@@ -438,6 +480,8 @@ public sealed partial class MainForm
     {
         string t = deck >= 0 ? $"{text} · DECK {DeckName(deck)}" : text;
         _hud.SetMove(t); _moveText = t; _moveAt = Environment.TickCount64;
+        // the big HUD shows every move too (time bend %, roll size, reverse, spin-back, focus, fader, capture...)
+        Toast(PadRole.Mixer, "•", text.ToUpperInvariant(), "", deck < 0 ? 3 : 1 << deck);
     }
 
     private static bool TryPad(string ctl, string prefix, out int pad)
@@ -506,6 +550,7 @@ public sealed partial class MainForm
         for (int d = 0; d < 2; d++)
         {
             _filters[d].SetSpring(null); ApplyFilter(d);
+            _appliedLeftReverb[d] = _blendEcho[d] = _blendVerb[d] = 0;
             _engine.Mixer.Echo(d).Send = 0; _sendNow[d] = 0; _throwAt[d] = -1;
             if (_rollAction[d] != null) { _rollAction[d] = null; if (!_loopOn[d]) Reader(d).StopRoll(); }
         }
@@ -523,6 +568,7 @@ public sealed partial class MainForm
         _spinHeld = false;
         ReleaseLayers();
         for (int p = 0; p < 4; p++) BankPadUp(p);
+        _rig?.ReleaseAll("c1:");
     }
 
     /// <summary>Soft rumble tick on each beat of the focused deck while a trigger is held or a loop/roll runs.</summary>
@@ -553,7 +599,7 @@ public sealed partial class MainForm
         {
             _engine.Mixer.KillFx(); _riserOn = false; _fxFreeze = false;
             for (int d = 0; d < 2; d++) { Reader(d).StopRoll(); _loopOn[d] = false; _rollAction[d] = null; _axisRoll[d] = false; _padHeld[d] = -1; _padLooping[d] = false; }
-            _scheduled.Clear(); ResetPadBank(); _holds.Clear();
+            _scheduled.Clear(); ResetPadBank(); _holds.Clear(); _rig.Clear(); ReleaseFxPad();
             SetMessage("PANIC: all audio killed. Hold View+Menu again to restore.", true);
         }
         else SetMessage("Audio restored.");
@@ -579,6 +625,7 @@ public sealed partial class MainForm
     {
         int? deck = DeckOf(action, _focus, out string ctl);
         int d = deck ?? _focus;
+        if (StickFxDispatch(action, deck, ctl, d, down, repeat)) return;
         if (ctl.StartsWith("Roll:"))
         {
             double beats = ParseBeats(ctl[5..]);
@@ -667,9 +714,13 @@ public sealed partial class MainForm
             case "TapBpm":
             {
                 double bpm = _taps[d].Tap(Environment.TickCount64);
-                SetMessage(bpm > 0 ? $"Tap tempo Deck {DeckName(d)}: {bpm:0.0} BPM (used for timing until MixDock hears the beat)." : "Tap tempo: keep tapping on the beat.");
+                SetMessage(bpm > 0 ? $"Tap tempo Deck {DeckName(d)}: {bpm:0.0} BPM (used for timing until HARP//MXR hears the beat)." : "Tap tempo: keep tapping on the beat.");
                 break;
             }
+            case "BassCut":
+                Panel(d).ToggleBassCut();
+                SetMessage($"Deck {DeckName(d)} bass {(Panel(d).GetParameters().BassCut ? "−24 dB" : "restored")}.");
+                break;
             case "LowKill": Panel(d).ToggleKill(0); break;
             case "MidKill": Panel(d).ToggleKill(1); break;
             case "HighKill": Panel(d).ToggleKill(2); break;

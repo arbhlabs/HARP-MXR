@@ -82,7 +82,7 @@ public sealed class MidiService : IDisposable
         _port = port; Status = status;
         // 1 ms timer resolution so due times and the clock are not rounded to Windows' 15.6 ms default tick
         if (port != null) try { _timerRaised = timeBeginPeriod(1) == 0; } catch { }
-        _thread = new Thread(Run) { IsBackground = true, Name = "MixDock MIDI", Priority = ThreadPriority.AboveNormal };
+        _thread = new Thread(Run) { IsBackground = true, Name = "HARP-MXR MIDI", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
     }
 
@@ -146,7 +146,7 @@ public sealed class MidiService : IDisposable
 /// <summary>Opens the best available MIDI output. Order: teVirtualMIDI (Tobias Erichsen driver DLL) creates a port named "MixDock"; else an existing loopMIDI / "MixDock" port via winmm; else none.</summary>
 public static class MidiPorts
 {
-    public const string PortName = "MixDock";
+    public const string PortName = "HARP MXR";
 
     public static MidiService Open(string? preferredOut, Func<IMidiPort?>? virtualFactory = null, Func<string?, IMidiPort?>? winmmFactory = null)
     {
@@ -231,7 +231,7 @@ public sealed class WinmmOut : IMidiPort
     }
     /// <summary>True for ports that are safe to feed: loopMIDI cables and anything named MixDock.</summary>
     public static bool IsVirtualCable(string name)
-        => name.Contains("loopMIDI", StringComparison.OrdinalIgnoreCase) || name.Contains("MixDock", StringComparison.OrdinalIgnoreCase);
+        => name.Contains("loopMIDI", StringComparison.OrdinalIgnoreCase) || name.Contains("MixDock", StringComparison.OrdinalIgnoreCase) || name.Contains("HARP", StringComparison.OrdinalIgnoreCase);
 
     public static IMidiPort? TryOpenVirtual(string? preferred)
     {

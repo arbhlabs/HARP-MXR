@@ -83,20 +83,36 @@ public sealed class DeckPanel:SurfacePanel,IDeckView
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool PadFocus {get=>_padFocus;set{if(_padFocus==value)return;_padFocus=value;Invalidate();}}
     /// <summary>0 = low, 1 = mid, 2 = high.</summary>
+    private bool _bassCut;
+    public void ToggleBassCut()
+    {
+        _bassCut = !_bassCut;
+        LowKill.Active = _bassCut;
+        LowKill.Text = _bassCut ? "−24" : "KILL";
+        LowKill.Invalidate();
+        ParametersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void ToggleKill(int band)
     {
         var k=band==0?LowKill:band==1?MidKill:HighKill;
-        k.Active=!k.Active;k.Text=k.Active?"KILLED":"KILL";k.Invalidate();ParametersChanged?.Invoke(this,EventArgs.Empty);
+        if (band == 0 && _bassCut)
+        {
+            _bassCut = false;
+            k.Active = false;
+        }
+        k.Active=!k.Active;k.Text="KILL";k.Invalidate();ParametersChanged?.Invoke(this,EventArgs.Empty);
     }
     public void ResetEq()
     {
+        _bassCut = false;
         Low.Value=Mid.Value=High.Value=50;
         foreach(var k in new[]{LowKill,MidKill,HighKill}){k.Active=false;k.Text="KILL";k.Invalidate();}
         ParametersChanged?.Invoke(this,EventArgs.Empty);
     }
     public void SetStatus(string text,bool live=false){_status.Text=text;_connected=live;Invalidate();}
     public DeckParameters GetParameters()=>new((Low.Value-50)*.24,(Mid.Value-50)*.24,(High.Value-50)*.24,
-        (Filter.Precise-50)/50.0,Trim.Value/100.0,Muted,LowKill.Active,MidKill.Active,HighKill.Active);
+        (Filter.Precise-50)/50.0,Trim.Value/100.0,Muted,LowKill.Active && !_bassCut,MidKill.Active,HighKill.Active,_bassCut);
     public DeckState GetState()=>new(){Low=Low.Value,Mid=Mid.Value,High=High.Value,Filter=Filter.Value,Trim=Trim.Value,Mute=Muted,LastProcessName=SelectedApp is null?null:AppPicker.Key(SelectedApp.Name)};
     protected override void OnLayout(LayoutEventArgs e)
     {

@@ -11,11 +11,11 @@ public sealed class AppPicker:ComboBox
         DropDownHeight=320;IntegralHeight=false;AccessibleName="Choose an audio app";
     }
     public static string Key(string name)=>name.Split(" (",2)[0].Trim().ToLowerInvariant();
-    public static string DisplayName(string name)=>Key(name) switch{
+    public static string DisplayName(string name)=>MixDock.Platform.DeckBrowserCommand.GroupLabel(name,DisplayName)??Key(name) switch{
         "vivaldi"=>"Vivaldi","spotify"=>"Spotify","chrome"=>"Chrome","msedge"=>"Microsoft Edge",
         "firefox"=>"Firefox","brave"=>"Brave","opera"=>"Opera","vlc"=>"VLC","ms-teams"=>"Microsoft Teams",
         var n=>n.Length==0?"Choose an app":char.ToUpper(n[0])+n[1..]};
-    protected override void OnDpiChangedAfterParent(EventArgs e){base.OnDpiChangedAfterParent(e);ItemHeight=(int)(48*UiMetrics.Scale(this));}
+    protected override void OnDpiChangedAfterParent(EventArgs e){base.OnDpiChangedAfterParent(e);if(Parent is not IConsoleScale)ItemHeight=(int)(48*UiMetrics.Scale(this));else Parent.PerformLayout();}
     protected override void OnDrawItem(DrawItemEventArgs e) => Theme.Guard(() => DrawItemCore(e), "AppPicker", this);
     private void DrawItemCore(DrawItemEventArgs e)
     {
@@ -23,7 +23,7 @@ public sealed class AppPicker:ComboBox
         bool selected=(e.State&DrawItemState.Selected)!=0;
         using var bg=new SolidBrush(selected?Color.FromArgb(49,57,73):Theme.Raised);e.Graphics.FillRectangle(bg,e.Bounds);
         var app=e.Index>=0?Items[e.Index] as MixDock.Platform.AudioApp:null;
-        float s=UiMetrics.Scale(this);int iconSize=(int)(28*s),pad=(int)(12*s);
+        float s=UiMetrics.Scale(this);bool compact=e.Bounds.Height<36*s;int iconSize=Math.Max(8,Math.Min((int)(28*s),e.Bounds.Height-(int)(6*s))),pad=(int)((compact?7:12)*s);
         var iconRect=new Rectangle(e.Bounds.Left+pad,e.Bounds.Top+(e.Bounds.Height-iconSize)/2,iconSize,iconSize);
         string key=app is null?"":Key(app.Name);
         if(app!=null&&!_icons.ContainsKey(key)){
@@ -36,10 +36,10 @@ public sealed class AppPicker:ComboBox
         if(app!=null&&_icons.GetValueOrDefault(key) is Image img)e.Graphics.DrawImage(img,iconRect);
         else{
             using var b=new SolidBrush(Theme.Edge);Theme.Ellipse(e.Graphics,b,iconRect);
-            Theme.TextAt(e.Graphics,app is null?"+":DisplayName(app.Name)[..1],iconRect,12,Theme.Text,true,true);
+            Theme.TextAt(e.Graphics,app is null?"+":DisplayName(app.Name)[..1],iconRect,compact?8:12,Theme.Text,true,true);
         }
-        Theme.TextAt(e.Graphics,app is null?"Choose an app":DisplayName(app.Name),
-            new(iconRect.Right+pad,e.Bounds.Top,e.Bounds.Width-iconSize-pad*3,e.Bounds.Height),12,Theme.Text,true);
+        Theme.TextAt(e.Graphics,app is null?"Pick an app or song":DisplayName(app.Name),
+            new(iconRect.Right+pad,e.Bounds.Top,e.Bounds.Width-iconSize-pad*3,e.Bounds.Height),compact?9:12,Theme.Text,true);
         if((e.State&DrawItemState.Focus)!=0)e.DrawFocusRectangle();
     }
     protected override void Dispose(bool disposing){if(disposing)foreach(var img in _icons.Values)img?.Dispose();base.Dispose(disposing);}
